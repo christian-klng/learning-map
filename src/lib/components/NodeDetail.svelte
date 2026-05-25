@@ -113,6 +113,57 @@
     else onDelete?.(box.id);
   }
 
+  let uploading = $state(false);
+
+  async function uploadFile(
+    file: File
+  ): Promise<{ url: string; filename: string; mime: string; size: number }> {
+    const form = new FormData();
+    form.append('file', file);
+    const res = await fetch('/api/uploads', { method: 'POST', body: form });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  }
+
+  async function onImagePick(box: ElementBox, ev: Event) {
+    const input = ev.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    uploading = true;
+    try {
+      const up = await uploadFile(file);
+      await saveContent(box, { ...box.content, url: up.url });
+    } catch (e) {
+      alert('Upload failed: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      uploading = false;
+      input.value = ''; // allow re-uploading the same file
+    }
+  }
+
+  async function onFilePick(box: ElementBox, ev: Event) {
+    const input = ev.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    uploading = true;
+    try {
+      const up = await uploadFile(file);
+      await saveContent(box, {
+        ...box.content,
+        url: up.url,
+        filename: up.filename,
+        mime: up.mime,
+        size: up.size
+      });
+      if (!box.title.trim()) await saveTitle(box, up.filename);
+    } catch (e) {
+      alert('Upload failed: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      uploading = false;
+      input.value = '';
+    }
+  }
+
   async function createSatellite(type: 'note' | 'image' | 'iframe' | 'file') {
     const defaults = {
       note: { title: 'New note', content: { body: '' } },
@@ -289,8 +340,17 @@ Write markdown here. Lists, **bold**, *italic*, [links](url), `code` all work."
               {/if}
             {:else if box.type === 'image'}
               {#if editing}
+                <label class="upload-btn" class:busy={uploading}>
+                  <span>{uploading ? 'UPLOADING…' : 'UPLOAD IMAGE'}</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    disabled={uploading}
+                    onchange={(e) => onImagePick(box, e)}
+                  />
+                </label>
                 <label class="field">
-                  <span>IMAGE URL</span>
+                  <span>OR PASTE A URL</span>
                   <input
                     value={box.content?.url ?? ''}
                     placeholder="https://…"
@@ -359,8 +419,16 @@ Write markdown here. Lists, **bold**, *italic*, [links](url), `code` all work."
               {/if}
             {:else if box.type === 'file'}
               {#if editing}
+                <label class="upload-btn" class:busy={uploading}>
+                  <span>{uploading ? 'UPLOADING…' : 'UPLOAD FILE'}</span>
+                  <input
+                    type="file"
+                    disabled={uploading}
+                    onchange={(e) => onFilePick(box, e)}
+                  />
+                </label>
                 <label class="field">
-                  <span>FILE URL</span>
+                  <span>OR PASTE A URL</span>
                   <input
                     value={box.content?.url ?? ''}
                     placeholder="https://…"
@@ -1003,6 +1071,46 @@ Write markdown here. Lists, **bold**, *italic*, [links](url), `code` all work."
     font-family: 'IBM Plex Mono', monospace;
     font-size: 12.5px;
     line-height: 1.6;
+  }
+
+  /* ===== Upload button (label wraps a hidden <input type=file>) ===== */
+  .upload-btn {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 14px 16px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1.5px dashed var(--panel-border);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 150ms;
+  }
+  .upload-btn:hover {
+    border-color: var(--planet-accent);
+    background: rgba(255, 255, 255, 0.05);
+  }
+  .upload-btn.busy {
+    cursor: wait;
+    opacity: 0.7;
+  }
+  .upload-btn span {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    color: var(--planet-accent);
+    font-weight: 500;
+  }
+  .upload-btn input[type='file'] {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+    width: 100%;
+    height: 100%;
+  }
+  .upload-btn input[type='file']:disabled {
+    cursor: wait;
   }
 
   /* ===== Add entry card ===== */

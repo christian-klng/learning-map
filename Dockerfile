@@ -27,6 +27,8 @@ ENV NODE_ENV=production
 ENV PORT=3000
 ENV HOST=0.0.0.0
 ENV BODY_SIZE_LIMIT=20M
+# Match the Coolify volume mount; the upload endpoint writes here.
+ENV UPLOAD_DIR=/app/uploads
 
 # Lightweight tools for healthcheck and entrypoint
 RUN apk add --no-cache wget tini

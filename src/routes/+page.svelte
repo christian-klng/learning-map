@@ -184,7 +184,7 @@
       planetMeta: planetRow ? planetMetaFromNode(planetRow) : { color: '#6366f1', design: 'plain' },
       satellites: sats.map(asBox)
     };
-    openInEdit = false;
+    openInEdit = canEdit;
     modalTimer = setTimeout(() => {
       selected = next;
       modalTimer = null;
