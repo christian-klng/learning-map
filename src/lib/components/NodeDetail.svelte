@@ -1,5 +1,6 @@
 <script lang="ts">
   import { marked } from 'marked';
+  import { PLANET_PALETTE, PLANET_DESIGNS, planetBgImage, type PlanetDesign } from '$lib/graph/visual';
 
   marked.setOptions({ gfm: true, breaks: true });
 
@@ -9,25 +10,30 @@
     type: string;
     content: any;
   };
+  type PlanetMeta = { color: string; design: PlanetDesign };
 
   interface Props {
     planet: ElementBox;
+    planetMeta?: PlanetMeta;
     satellites: ElementBox[];
     onClose: () => void;
     onUpdate?: (node: ElementBox) => void;
     onDelete?: (id: string) => void;
     onAdd?: (node: ElementBox) => void;
     onPlanetDelete?: (id: string) => void;
+    onMetadataChange?: (patch: Partial<PlanetMeta>) => void;
     startInEdit?: boolean;
   }
   let {
     planet,
+    planetMeta,
     satellites,
     onClose,
     onUpdate,
     onDelete,
     onAdd,
     onPlanetDelete,
+    onMetadataChange,
     startInEdit = false
   }: Props = $props();
 
@@ -190,6 +196,41 @@
         </button>
       </div>
     </header>
+
+    {#if editing && planetMeta}
+      <div class="planet-settings">
+        <div class="setting">
+          <span class="setting-label">Color</span>
+          <div class="swatches">
+            {#each PLANET_PALETTE as color (color)}
+              <button
+                class="swatch"
+                class:active={planetMeta.color.toLowerCase() === color.toLowerCase()}
+                style="background: {color}"
+                onclick={() => onMetadataChange?.({ color })}
+                aria-label="Use color {color}"
+                title={color}
+              ></button>
+            {/each}
+          </div>
+        </div>
+        <div class="setting">
+          <span class="setting-label">Design</span>
+          <div class="designs">
+            {#each PLANET_DESIGNS as design (design)}
+              <button
+                class="design-btn"
+                class:active={planetMeta.design === design}
+                onclick={() => onMetadataChange?.({ design })}
+                aria-label="Use {design} design"
+                title={design}
+                style="background-image: url(&quot;{planetBgImage(planetMeta.color, design)}&quot;); background-size: cover; background-position: center;"
+              ></button>
+            {/each}
+          </div>
+        </div>
+      </div>
+    {/if}
 
     <div class="grid" style="--cols: {cols}">
       {#each boxes as box (box.id)}
@@ -464,6 +505,66 @@ Write markdown here. Lists, **bold**, *italic*, [links](url), `code` all work."
   .icon-btn.small {
     width: 24px;
     height: 24px;
+  }
+
+  .planet-settings {
+    display: flex;
+    gap: 20px;
+    padding: 12px 24px;
+    border-bottom: 1px solid var(--panel-border);
+    flex-shrink: 0;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .setting {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .setting-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    font-weight: 600;
+  }
+  .swatches,
+  .designs {
+    display: flex;
+    gap: 6px;
+  }
+  .swatch {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    cursor: pointer;
+    padding: 0;
+    transition: transform 120ms, border-color 120ms;
+  }
+  .swatch:hover {
+    transform: scale(1.15);
+  }
+  .swatch.active {
+    border-color: var(--text);
+    transform: scale(1.1);
+  }
+  .design-btn {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    cursor: pointer;
+    padding: 0;
+    background-position: center;
+    background-repeat: no-repeat;
+    transition: transform 120ms, border-color 120ms;
+  }
+  .design-btn:hover {
+    transform: scale(1.12);
+  }
+  .design-btn.active {
+    border-color: var(--text);
   }
 
   .grid {

@@ -1,8 +1,10 @@
 import type { NodeRow, EdgeRow } from '$lib/server/db/schema';
 import type cytoscape from 'cytoscape';
-import { planetGradient, planetGlow, planetBorder } from './color';
+import { planetGlow, planetBorder } from './color';
+import { planetBgImage, type PlanetDesign } from './visual';
 
 const DEFAULT_PLANET_COLOR = '#6366f1'; // indigo fallback
+const DEFAULT_PLANET_DESIGN: PlanetDesign = 'plain';
 
 export type Partitioned = {
   planets: NodeRow[];
@@ -33,7 +35,7 @@ export function partition(nodes: NodeRow[], edges: EdgeRow[]): Partitioned {
 /** Build one planet's element definition (used for initial load AND on-demand creation). */
 export function planetElement(n: NodeRow, satelliteCount: number): cytoscape.ElementDefinition {
   const base = (n.metadata?.color as string) ?? DEFAULT_PLANET_COLOR;
-  const grad = planetGradient(base);
+  const design = (n.metadata?.design as PlanetDesign) ?? DEFAULT_PLANET_DESIGN;
   const el: cytoscape.ElementDefinition = {
     data: {
       id: n.id,
@@ -43,10 +45,10 @@ export function planetElement(n: NodeRow, satelliteCount: number): cytoscape.Ele
       isPlanet: true,
       satelliteCount,
       baseColor: base,
-      gradientColors: grad.colors,
-      gradientPositions: grad.positions,
+      design,
       borderColor: planetBorder(base),
-      glow: planetGlow(base)
+      glow: planetGlow(base),
+      bgImage: planetBgImage(base, design)
     }
   };
   if (n.position) el.position = n.position as { x: number; y: number };

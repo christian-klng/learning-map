@@ -50,16 +50,19 @@ export function buildStylesheet(): cytoscape.StylesheetJson {
       }
     },
 
-    // PLANETS — radial gradient, glow, and border all derived from data.baseColor
+    // PLANETS — the full visual (gradient body + design overlay) is a single SVG
+    // that we paint as background-image. Solid background underneath stays transparent.
     {
       selector: 'node[?isPlanet]',
       style: {
         shape: 'ellipse',
         width: 96,
         height: 96,
-        'background-fill': 'radial-gradient',
-        'background-gradient-stop-colors': 'data(gradientColors)',
-        'background-gradient-stop-positions': 'data(gradientPositions)',
+        'background-color': '#000', // peeks at the very edges; mostly hidden by border + overlay
+        'background-opacity': 0,
+        'background-image': 'data(bgImage)',
+        'background-image-opacity': 1,
+        'background-fit': 'cover',
         'border-width': 1.5,
         'border-color': 'data(borderColor)',
         'border-opacity': 0.65,

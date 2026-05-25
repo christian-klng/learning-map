@@ -9,11 +9,14 @@
   } from '$lib/graph/to-cytoscape';
   import { buildStylesheet } from '$lib/graph/cytoscape-style';
   import { theme } from '$lib/stores/theme';
+  import { planetGlow, planetBorder } from '$lib/graph/color';
+  import { PLANET_PALETTE, planetBgImage, type PlanetDesign } from '$lib/graph/visual';
   import type { NodeRow, EdgeRow } from '$lib/server/db/schema';
   import NodeDetail from '$lib/components/NodeDetail.svelte';
   import ThemeSwitcher from '$lib/components/ThemeSwitcher.svelte';
 
   type ElementBox = { id: string; title: string; type: string; content: any };
+  type PlanetMeta = { color: string; design: PlanetDesign };
 
   let { data } = $props();
 
@@ -25,14 +28,20 @@
   let container: HTMLDivElement;
   let cy: cytoscape.Core | undefined;
   let expandedPlanetId: string | null = null;
-  let selected = $state<{ planet: ElementBox; satellites: ElementBox[] } | null>(null);
+  let selected = $state<{
+    planet: ElementBox;
+    planetMeta: PlanetMeta;
+    satellites: ElementBox[];
+  } | null>(null);
   let openInEdit = $state(false);
 
-  // Palette for auto-assigning colours to new planets (cycles).
-  const PLANET_PALETTE = [
-    '#10b981', '#f97316', '#3b82f6', '#a855f7',
-    '#ef4444', '#eab308', '#06b6d4', '#ec4899'
-  ];
+  function planetMetaFromNode(n: NodeRow): PlanetMeta {
+    const md = (n.metadata ?? {}) as Record<string, unknown>;
+    return {
+      color: (md.color as string) ?? '#6366f1',
+      design: ((md.design as PlanetDesign) ?? 'plain') as PlanetDesign
+    };
+  }
 
   async function init() {
     const cytoscape = (await import('cytoscape')).default;
@@ -41,15 +50,22 @@
     cytoscape.use(fcose);
     cytoscape.use(edgehandles);
 
-    // If every planet already has a saved position, skip auto-layout and use them as-is
-    const haveAllPositions =
-      part.planets.length > 0 && part.planets.every((p) => p.position);
+    // Layout strategy:
+    //  - All planets positioned → preset (zero movement)
+    //  - Some positioned, some not → fcose, but PIN the positioned ones so they don't drift
+    //  - None positioned → fcose from scratch
+    const positioned = part.planets.filter((p) => !!p.position);
+    const allPositioned = positioned.length === part.planets.length && positioned.length > 0;
+    const fixedNodeConstraint = positioned.map((p) => ({
+      nodeId: p.id,
+      position: p.position as { x: number; y: number }
+    }));
 
     cy = cytoscape({
       container,
       elements: planetElements(part),
       style: buildStylesheet(),
-      layout: haveAllPositions
+      layout: allPositioned
         ? ({ name: 'preset' } as any)
         : ({
             name: 'fcose',
@@ -59,13 +75,25 @@
             nodeRepulsion: 12000,
             idealEdgeLength: 220,
             nodeSeparation: 120,
-            randomize: true,
+            randomize: positioned.length === 0,
+            fixedNodeConstraint,
             padding: 80
           } as any),
       wheelSensitivity: 0.2,
       minZoom: 0.25,
       maxZoom: 3
     });
+
+    // After the first layout completes, persist computed positions for planets that didn't
+    // have one — so subsequent reloads use `preset` and nothing ever drifts again.
+    if (!allPositioned) {
+      cy.one('layoutstop', () => {
+        cy!.nodes('node[?isPlanet]').forEach((node) => {
+          const local = allNodes.find((n) => n.id === node.id());
+          if (local && !local.position) void savePosition(node);
+        });
+      });
+    }
 
     cy.on('tap', 'node', (e) => onNodeTap(e.target));
     cy.on('tap', 'edge:not(.orbit-edge)', (e) => onEdgeTap(e.target));
@@ -109,9 +137,11 @@
     if (expandedPlanetId) collapse();
     expand(node);
     const sats = part.satellitesByParent.get(node.id()) ?? [];
+    const planetRow = allNodes.find((n) => n.id === node.id());
     openInEdit = false;
     selected = {
       planet: { id: node.id(), title: data.title, type: data.type, content: data.content },
+      planetMeta: planetRow ? planetMetaFromNode(planetRow) : { color: '#6366f1', design: 'plain' },
       satellites: sats.map(asBox)
     };
   }
@@ -343,6 +373,63 @@
     edge.remove();
   }
 
+  /** Live-update planet metadata (color + design) from the modal's picker. */
+  async function handleMetadataChange(patch: Partial<PlanetMeta>) {
+    if (!selected) return;
+    const planetId = selected.planet.id;
+    const current = allNodes.find((n) => n.id === planetId);
+    if (!current) return;
+
+    const newMeta = { ...(current.metadata as any), ...patch };
+
+    // Optimistic local + cy update
+    allNodes = allNodes.map((n) => (n.id === planetId ? { ...n, metadata: newMeta } : n));
+
+    const cyNode = cy?.getElementById(planetId);
+    if (cyNode?.length) {
+      // The new metadata after applying the patch
+      const newColor = patch.color ?? selected.planetMeta.color;
+      const newDesign = patch.design ?? selected.planetMeta.design;
+      const newBorder = planetBorder(newColor);
+      const newGlow = planetGlow(newColor);
+      const bgImage = planetBgImage(newColor, newDesign);
+
+      cyNode.data('baseColor', newColor);
+      cyNode.data('design', newDesign);
+      cyNode.data('bgImage', bgImage);
+      cyNode.data('borderColor', newBorder);
+      cyNode.data('glow', newGlow);
+
+      // Inline style overrides force the canvas to refresh — data() mappers don't always re-fire
+      cyNode.style({
+        'background-image': bgImage,
+        'border-color': newBorder
+      } as any);
+
+      // Satellites inherit the planet's glow — update them too if the ring is showing
+      if (patch.color && expandedPlanetId === planetId) {
+        cy?.elements('node.satellite').forEach((s) => s.data('glow', newGlow));
+        cy?.elements('edge.orbit-edge').forEach((o) => o.data('glow', newGlow));
+      }
+    }
+
+    // Update modal state
+    selected = {
+      ...selected,
+      planetMeta: {
+        color: patch.color ?? selected.planetMeta.color,
+        design: patch.design ?? selected.planetMeta.design
+      }
+    };
+
+    // Persist
+    await fetch(`/api/nodes/${planetId}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ metadata: newMeta })
+    }).catch(() => {});
+  }
+
   async function savePosition(node: cytoscape.NodeSingular) {
     const id = node.id();
     const pos = node.position();
@@ -361,7 +448,18 @@
 
   async function createNewPlanet() {
     if (!cy) return;
-    const color = PLANET_PALETTE[part.planets.length % PLANET_PALETTE.length];
+    const idx = part.planets.length;
+    const color = PLANET_PALETTE[idx % PLANET_PALETTE.length];
+    const designs: PlanetDesign[] = ['plain', 'bands', 'craters', 'rings', 'swirl'];
+    const design = designs[idx % designs.length];
+
+    const pan = cy.pan();
+    const zoom = cy.zoom();
+    const position = {
+      x: (cy.width() / 2 - pan.x) / zoom,
+      y: (cy.height() / 2 - pan.y) / zoom
+    };
+
     const res = await fetch('/api/nodes', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -369,7 +467,8 @@
         type: 'note',
         title: 'New planet',
         content: { body: '' },
-        metadata: { color }
+        metadata: { color, design },
+        position
       })
     });
     if (!res.ok) {
@@ -379,19 +478,16 @@
     const node: NodeRow = await res.json();
     allNodes = [...allNodes, node];
 
-    // Place at viewport centre so it's immediately visible
-    const pan = cy.pan();
-    const zoom = cy.zoom();
-    const cx = (cy.width() / 2 - pan.x) / zoom;
-    const cyY = (cy.height() / 2 - pan.y) / zoom;
-    const el = planetElement(node, 0);
-    cy.add({ ...el, position: { x: cx, y: cyY } });
+    cy.add(planetElement(node, 0));
 
-    // Collapse any existing scene, then open this new planet in edit mode
     if (expandedPlanetId) collapse();
     clearFocus();
     openInEdit = true;
-    selected = { planet: asBox(node), satellites: [] };
+    selected = {
+      planet: asBox(node),
+      planetMeta: planetMetaFromNode(node),
+      satellites: []
+    };
     expand(cy.getElementById(node.id));
   }
 
@@ -422,12 +518,14 @@
     {#key selected.planet.id}
       <NodeDetail
         planet={selected.planet}
+        planetMeta={selected.planetMeta}
         satellites={selected.satellites}
         onClose={clearAll}
         onUpdate={handleUpdate}
         onDelete={handleSatelliteDelete}
         onAdd={handleSatelliteAdd}
         onPlanetDelete={handlePlanetDelete}
+        onMetadataChange={handleMetadataChange}
         startInEdit={openInEdit}
       />
     {/key}
