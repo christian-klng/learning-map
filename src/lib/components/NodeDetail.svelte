@@ -3,12 +3,41 @@
 
   marked.setOptions({ gfm: true, breaks: true });
 
-  interface ElementBox {
+  type ElementBox = {
     id: string;
     title: string;
     type: string;
     content: any;
+  };
+
+  interface Props {
+    planet: ElementBox;
+    satellites: ElementBox[];
+    onClose: () => void;
+    onUpdate?: (node: ElementBox) => void;
+    onDelete?: (id: string) => void;
+    onAdd?: (node: ElementBox) => void;
+    onPlanetDelete?: (id: string) => void;
+    startInEdit?: boolean;
   }
+  let {
+    planet,
+    satellites,
+    onClose,
+    onUpdate,
+    onDelete,
+    onAdd,
+    onPlanetDelete,
+    startInEdit = false
+  }: Props = $props();
+
+  let editing = $state(startInEdit);
+
+  // Planet's own content is the first box; each satellite is its own box.
+  const boxes = $derived<ElementBox[]>([planet, ...satellites]);
+
+  // Max 2 columns. Single element fills the modal.
+  const cols = $derived(boxes.length <= 1 ? 1 : 2);
 
   // NOTE: input is trusted (DB-seeded by you). When user-authored markdown lands
   // in a later phase, wrap with DOMPurify before {@html}.
@@ -17,25 +46,83 @@
     return marked.parse(src) as string;
   }
 
-  interface Props {
-    planet: ElementBox;
-    satellites: ElementBox[];
-    onClose: () => void;
-  }
-  let { planet, satellites, onClose }: Props = $props();
-
-  // Planet's own content is the first box; each satellite is its own box.
-  const boxes = $derived<ElementBox[]>([planet, ...satellites]);
-
-  // Max 2 columns. Single element fills the modal.
-  const cols = $derived(boxes.length <= 1 ? 1 : 2);
-
   function stop(e: Event) {
     e.stopPropagation();
   }
-
   function onKey(e: KeyboardEvent) {
-    if (e.key === 'Escape') onClose();
+    if (e.key === 'Escape' && !editing) onClose();
+  }
+
+  /* ---------- mutations ---------- */
+
+  async function patchNode(id: string, patch: Record<string, unknown>) {
+    const res = await fetch(`/api/nodes/${id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(patch)
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  }
+
+  async function saveTitle(box: ElementBox, value: string) {
+    if (value === (box.title ?? '')) return;
+    const updated = await patchNode(box.id, { title: value });
+    onUpdate?.({ ...box, title: updated.title ?? '' });
+  }
+
+  async function saveContent(box: ElementBox, content: any) {
+    const updated = await patchNode(box.id, { content });
+    onUpdate?.({ ...box, content: updated.content });
+  }
+
+  async function deleteBox(box: ElementBox) {
+    const isPlanet = box.id === planet.id;
+    const msg = isPlanet
+      ? `Delete "${box.title}" and all its satellites?`
+      : `Delete "${box.title}"?`;
+    if (!confirm(msg)) return;
+    const res = await fetch(`/api/nodes/${box.id}`, { method: 'DELETE' });
+    if (!res.ok) {
+      alert('Failed to delete: ' + (await res.text()));
+      return;
+    }
+    if (isPlanet) {
+      onPlanetDelete?.(box.id);
+    } else {
+      onDelete?.(box.id);
+    }
+  }
+
+  /* ---------- add satellite ---------- */
+
+  let addingType = $state<null | 'note' | 'image' | 'iframe' | 'file'>(null);
+
+  async function createSatellite(type: 'note' | 'image' | 'iframe' | 'file') {
+    const defaults = {
+      note: { title: 'New note', content: { body: '' } },
+      image: { title: '', content: { url: '', alt: '' } },
+      iframe: { title: 'External page', content: { url: '' } },
+      file: { title: 'File', content: { url: '', filename: '', mime: '', size: 0 } }
+    }[type];
+
+    const res = await fetch('/api/nodes', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ type, parentId: planet.id, ...defaults })
+    });
+    if (!res.ok) {
+      alert('Failed to create: ' + (await res.text()));
+      return;
+    }
+    const node = await res.json();
+    onAdd?.({
+      id: node.id,
+      title: node.title ?? '',
+      type: node.type,
+      content: node.content
+    });
+    addingType = null;
   }
 </script>
 
@@ -51,23 +138,88 @@
     tabindex="-1"
   >
     <header>
-      <h2>{planet.title}</h2>
-      <button class="close" onclick={onClose} aria-label="Close">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-          <path
-            d="M2 2L12 12M12 2L2 12"
-            stroke="currentColor"
-            stroke-width="1.5"
-            stroke-linecap="round"
-          />
-        </svg>
-      </button>
+      {#if editing}
+        <input
+          class="title-input"
+          value={planet.title}
+          onblur={(e) => saveTitle(planet, e.currentTarget.value)}
+          placeholder="Untitled"
+        />
+      {:else}
+        <h2>{planet.title || 'Untitled'}</h2>
+      {/if}
+
+      <div class="actions">
+        <button
+          class="icon-btn"
+          class:active={editing}
+          onclick={() => (editing = !editing)}
+          aria-label={editing ? 'Done editing' : 'Edit'}
+          title={editing ? 'Done' : 'Edit'}
+        >
+          {#if editing}
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path
+                d="M3 7L6 10L11 4"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          {:else}
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path
+                d="M9 2L12 5L5 12L2 12L2 9L9 2Z"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linejoin="round"
+              />
+            </svg>
+          {/if}
+        </button>
+        <button class="icon-btn" onclick={onClose} aria-label="Close" title="Close">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path
+              d="M2 2L12 12M12 2L2 12"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+            />
+          </svg>
+        </button>
+      </div>
     </header>
 
     <div class="grid" style="--cols: {cols}">
       {#each boxes as box (box.id)}
         <article class="card" data-type={box.type}>
-          {#if box.title && box.type !== 'image' && box.type !== 'note'}
+          {#if editing}
+            <div class="card-header edit-header">
+              <input
+                class="card-title-input"
+                value={box.title}
+                placeholder={box.type === 'image' ? 'source / caption' : 'Title'}
+                onblur={(e) => saveTitle(box, e.currentTarget.value)}
+              />
+              <button
+                class="icon-btn small"
+                onclick={() => deleteBox(box)}
+                aria-label="Delete element"
+                title="Delete"
+              >
+                <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
+                  <path
+                    d="M3 4H11M5 4V2.5C5 2.22 5.22 2 5.5 2H8.5C8.78 2 9 2.22 9 2.5V4M4 4V11.5C4 11.78 4.22 12 4.5 12H9.5C9.78 12 10 11.78 10 11.5V4"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </button>
+            </div>
+          {:else if box.title && box.type !== 'image' && box.type !== 'note'}
             <div class="card-header">
               <h3>{box.title}</h3>
             </div>
@@ -75,39 +227,123 @@
 
           <div class="card-body">
             {#if box.type === 'note'}
-              <div class="note">{@html renderMarkdown(box.content?.body)}</div>
-            {:else if box.type === 'image'}
-              <img src={box.content?.url} alt={box.content?.alt ?? box.title ?? ''} />
-              {#if box.content?.caption}
-                <p class="caption">{box.content.caption}</p>
+              {#if editing}
+                <textarea
+                  class="md-edit"
+                  value={box.content?.body ?? ''}
+                  placeholder="# Heading
+
+Write markdown here. Lists, **bold**, *italic*, [links](url), `code` all work."
+                  onblur={(e) => saveContent(box, { body: e.currentTarget.value })}
+                ></textarea>
+              {:else}
+                <div class="note">{@html renderMarkdown(box.content?.body)}</div>
               {/if}
-              {#if box.title}
-                <p class="source">{box.title}</p>
+            {:else if box.type === 'image'}
+              {#if editing}
+                <label class="field">
+                  <span>Image URL</span>
+                  <input
+                    value={box.content?.url ?? ''}
+                    placeholder="https://…"
+                    onblur={(e) =>
+                      saveContent(box, { ...box.content, url: e.currentTarget.value })}
+                  />
+                </label>
+                <label class="field">
+                  <span>Alt text</span>
+                  <input
+                    value={box.content?.alt ?? ''}
+                    placeholder="Describes the image"
+                    onblur={(e) =>
+                      saveContent(box, { ...box.content, alt: e.currentTarget.value })}
+                  />
+                </label>
+                {#if box.content?.url}
+                  <img src={box.content.url} alt={box.content?.alt ?? ''} />
+                {/if}
+              {:else}
+                <img src={box.content?.url} alt={box.content?.alt ?? box.title ?? ''} />
+                {#if box.content?.caption}
+                  <p class="caption">{box.content.caption}</p>
+                {/if}
+                {#if box.title}
+                  <p class="source">{box.title}</p>
+                {/if}
               {/if}
             {:else if box.type === 'iframe'}
-              <iframe
-                src={box.content?.url}
-                title={box.title}
-                sandbox="allow-scripts allow-same-origin allow-popups"
-                loading="lazy"
-              ></iframe>
-              <a class="external" href={box.content?.url} target="_blank" rel="noopener">
-                Open ↗
-              </a>
+              {#if editing}
+                <label class="field">
+                  <span>URL</span>
+                  <input
+                    value={box.content?.url ?? ''}
+                    placeholder="https://…"
+                    onblur={(e) =>
+                      saveContent(box, { ...box.content, url: e.currentTarget.value })}
+                  />
+                </label>
+              {:else}
+                <iframe
+                  src={box.content?.url}
+                  title={box.title}
+                  sandbox="allow-scripts allow-same-origin allow-popups"
+                  loading="lazy"
+                ></iframe>
+                <a class="external" href={box.content?.url} target="_blank" rel="noopener">
+                  Open ↗
+                </a>
+              {/if}
             {:else if box.type === 'file'}
-              <a class="download" href={box.content?.url} download={box.content?.filename}>
-                <div class="file-icon">📄</div>
-                <div>
-                  <div class="file-name">{box.content?.filename}</div>
-                  <div class="file-meta">{Math.round((box.content?.size ?? 0) / 1024)} KB</div>
-                </div>
-              </a>
+              {#if editing}
+                <label class="field">
+                  <span>File URL</span>
+                  <input
+                    value={box.content?.url ?? ''}
+                    placeholder="https://…"
+                    onblur={(e) =>
+                      saveContent(box, { ...box.content, url: e.currentTarget.value })}
+                  />
+                </label>
+                <label class="field">
+                  <span>Filename</span>
+                  <input
+                    value={box.content?.filename ?? ''}
+                    placeholder="example.pdf"
+                    onblur={(e) =>
+                      saveContent(box, { ...box.content, filename: e.currentTarget.value })}
+                  />
+                </label>
+              {:else}
+                <a class="download" href={box.content?.url} download={box.content?.filename}>
+                  <div class="file-icon">📄</div>
+                  <div>
+                    <div class="file-name">{box.content?.filename}</div>
+                    <div class="file-meta">
+                      {Math.round((box.content?.size ?? 0) / 1024)} KB
+                    </div>
+                  </div>
+                </a>
+              {/if}
             {:else}
               <pre>{JSON.stringify(box.content, null, 2)}</pre>
             {/if}
           </div>
         </article>
       {/each}
+
+      {#if editing}
+        <article class="card add-card">
+          {#if addingType === null}
+            <div class="add-prompt">Add an element</div>
+            <div class="type-grid">
+              <button onclick={() => createSatellite('note')}>📝 Note</button>
+              <button onclick={() => createSatellite('image')}>🖼 Image</button>
+              <button onclick={() => createSatellite('iframe')}>🔗 External</button>
+              <button onclick={() => createSatellite('file')}>📄 File</button>
+            </div>
+          {/if}
+        </article>
+      {/if}
     </div>
   </div>
 </div>
@@ -165,6 +401,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 16px;
     padding: 18px 24px;
     border-bottom: 1px solid var(--panel-border);
     flex-shrink: 0;
@@ -178,8 +415,31 @@
     overflow: hidden;
     text-overflow: ellipsis;
     min-width: 0;
+    flex: 1;
   }
-  .close {
+  .title-input {
+    background: transparent;
+    border: 1px solid var(--panel-border);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    padding: 6px 10px;
+    border-radius: 8px;
+    flex: 1;
+    min-width: 0;
+    outline: none;
+  }
+  .title-input:focus {
+    border-color: var(--focus-ring);
+  }
+  .actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+  .icon-btn {
     width: 32px;
     height: 32px;
     display: grid;
@@ -191,11 +451,19 @@
     cursor: pointer;
     opacity: 0.6;
     transition: all 150ms;
-    flex-shrink: 0;
   }
-  .close:hover {
+  .icon-btn:hover {
     opacity: 1;
     background: var(--panel-border);
+  }
+  .icon-btn.active {
+    opacity: 1;
+    color: var(--focus-ring);
+    background: var(--panel-border);
+  }
+  .icon-btn.small {
+    width: 24px;
+    height: 24px;
   }
 
   .grid {
@@ -207,10 +475,6 @@
     overflow: auto;
     flex: 1;
     min-height: 0;
-  }
-  /* Single-element layout fills the modal */
-  .grid:has(.card:only-child) {
-    grid-auto-rows: minmax(0, 1fr);
   }
 
   .card {
@@ -233,6 +497,28 @@
     font-weight: 600;
     line-height: 1.3;
   }
+  .edit-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+  }
+  .card-title-input {
+    flex: 1;
+    background: transparent;
+    border: 1px solid var(--panel-border);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    padding: 4px 8px;
+    border-radius: 6px;
+    outline: none;
+    min-width: 0;
+  }
+  .card-title-input:focus {
+    border-color: var(--focus-ring);
+  }
   .card-body {
     padding: 12px 14px 14px;
     flex: 1;
@@ -240,9 +526,85 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
+    gap: 8px;
   }
 
-  /* Per-type body styling */
+  /* Field group for editable typed fields (image url, alt, etc.) */
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 11px;
+  }
+  .field span {
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 600;
+  }
+  .field input,
+  .md-edit {
+    background: var(--bg-base);
+    border: 1px solid var(--panel-border);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 13px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    outline: none;
+    width: 100%;
+  }
+  .field input:focus,
+  .md-edit:focus {
+    border-color: var(--focus-ring);
+  }
+  .md-edit {
+    flex: 1;
+    min-height: 160px;
+    resize: vertical;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12.5px;
+    line-height: 1.55;
+  }
+
+  /* "+ Add element" card */
+  .add-card {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    background: transparent;
+    border: 1px dashed var(--panel-border);
+    gap: 14px;
+    color: var(--text-dim);
+  }
+  .add-prompt {
+    font-size: 12px;
+    letter-spacing: 0.04em;
+  }
+  .type-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    width: 80%;
+  }
+  .type-grid button {
+    background: var(--panel-border);
+    color: var(--text);
+    border: 1px solid transparent;
+    border-radius: 8px;
+    padding: 10px 8px;
+    font-family: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 150ms;
+  }
+  .type-grid button:hover {
+    border-color: var(--focus-ring);
+    transform: translateY(-1px);
+  }
+
+  /* Per-type body styling (view mode) */
   .note {
     font-size: 13.5px;
     line-height: 1.6;
@@ -382,7 +744,9 @@
     border-radius: 10px;
     text-decoration: none;
     color: var(--text);
-    transition: transform 150ms, background 150ms;
+    transition:
+      transform 150ms,
+      background 150ms;
     align-self: stretch;
   }
   .download:hover {

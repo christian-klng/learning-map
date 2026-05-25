@@ -30,27 +30,34 @@ export function partition(nodes: NodeRow[], edges: EdgeRow[]): Partitioned {
   return { planets, satellitesByParent, planetEdges };
 }
 
+/** Build one planet's element definition (used for initial load AND on-demand creation). */
+export function planetElement(n: NodeRow, satelliteCount: number): cytoscape.ElementDefinition {
+  const base = (n.metadata?.color as string) ?? DEFAULT_PLANET_COLOR;
+  const grad = planetGradient(base);
+  const el: cytoscape.ElementDefinition = {
+    data: {
+      id: n.id,
+      title: n.title ?? '',
+      type: n.type,
+      content: n.content,
+      isPlanet: true,
+      satelliteCount,
+      baseColor: base,
+      gradientColors: grad.colors,
+      gradientPositions: grad.positions,
+      borderColor: planetBorder(base),
+      glow: planetGlow(base)
+    }
+  };
+  if (n.position) el.position = n.position as { x: number; y: number };
+  return el;
+}
+
 /** Initial Cytoscape elements — planets and the edges between them. No satellites. */
 export function planetElements(p: Partitioned): cytoscape.ElementDefinition[] {
-  const nodes: cytoscape.ElementDefinition[] = p.planets.map((n) => {
-    const base = (n.metadata?.color as string) ?? DEFAULT_PLANET_COLOR;
-    const grad = planetGradient(base);
-    return {
-      data: {
-        id: n.id,
-        title: n.title ?? '',
-        type: n.type,
-        content: n.content,
-        isPlanet: true,
-        satelliteCount: p.satellitesByParent.get(n.id)?.length ?? 0,
-        baseColor: base,
-        gradientColors: grad.colors,
-        gradientPositions: grad.positions,
-        borderColor: planetBorder(base),
-        glow: planetGlow(base)
-      }
-    };
-  });
+  const nodes: cytoscape.ElementDefinition[] = p.planets.map((n) =>
+    planetElement(n, p.satellitesByParent.get(n.id)?.length ?? 0)
+  );
   const edges: cytoscape.ElementDefinition[] = p.planetEdges.map((e) => ({
     data: {
       id: e.id,
