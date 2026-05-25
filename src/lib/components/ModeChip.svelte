@@ -72,7 +72,7 @@
           <span class="item-icon">★</span>
           <div>
             <div class="item-title">Enter admin mode</div>
-            <div class="item-sub">For teacher — adds theme control</div>
+            <div class="item-sub">For teacher — reserved for admin-only operations</div>
           </div>
         </button>
       {/if}

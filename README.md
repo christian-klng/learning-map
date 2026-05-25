@@ -94,7 +94,7 @@ Set these on the Application in Coolify:
 | `DATABASE_URL` | `postgres://...` | Coolify offers an "Connect" button on the Postgres resource — use the **internal** URL (resolves over the Docker network). |
 | `ORIGIN` | `https://your-domain.example` | **Required.** SvelteKit's adapter-node uses this for CSRF protection on POST/PATCH/DELETE. Must match the public URL Coolify routes to. |
 | `STUDENT_PASSWORD` | _your choice_ | Password for student edit mode. Share with the class. |
-| `ADMIN_PASSWORD` | _your choice_ | Teacher-only password. Adds theme control on top of student edit. |
+| `ADMIN_PASSWORD` | _your choice_ | Teacher-only password. Reserved for admin-only operations on top of student edit. |
 | `SESSION_SECRET` | _32+ random chars_ | HMAC key for signed session cookies. Generate with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. **App refuses to start in production without this.** |
 | `NODE_ENV` | `production` | Already set in the Dockerfile, harmless to repeat. |
 
@@ -115,7 +115,7 @@ http-only cookie, so it survives refresh and works per-browser.
 |---|---|---|
 | **View** | Read everything. Click planets, open modals, read content. No edit affordances. | Default. Click "Lock to view" from any other mode. |
 | **Edit** (student) | Add / edit / delete planets, satellites, edges. Drag to reposition. Change planet color & design. | Type your name + the student password. Lasts 4h. |
-| **Admin** (teacher) | Everything above + theme switcher. Reserved for future admin-only operations. | Admin password. Optional name (defaults to "Teacher"). Lasts 1h. |
+| **Admin** (teacher) | Everything above. Reserved for future admin-only operations. | Admin password. Optional name (defaults to "Teacher"). Lasts 1h. |
 
 A presence pill near the chip shows other people currently connected. Edits broadcast over
 Server-Sent Events (Postgres `LISTEN/NOTIFY` → fan-out) so classmates see changes in real time
