@@ -794,9 +794,7 @@
         </div>
       {/if}
       <ModeChip />
-      {#if canAdmin}
-        <ThemeSwitcher />
-      {/if}
+      <ThemeSwitcher />
     </div>
   </header>
 
