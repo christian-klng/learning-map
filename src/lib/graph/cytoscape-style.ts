@@ -66,9 +66,13 @@ export function buildStylesheet(): cytoscape.StylesheetJson {
         'border-width': 1.5,
         'border-color': 'data(borderColor)',
         'border-opacity': 0.65,
+        label: 'data(title)',
         color: t.text,
         'font-size': 13,
         'font-weight': 600,
+        'text-valign': 'bottom',
+        'text-halign': 'center',
+        'text-margin-y': 8,
         'overlay-shape': 'ellipse'
       }
     },
@@ -80,33 +84,20 @@ export function buildStylesheet(): cytoscape.StylesheetJson {
         shape: 'ellipse',
         width: 44,
         height: 44,
-        'font-size': 10,
-        'font-weight': 500,
-        color: t.text,
-        'border-width': 1,
-        'border-color': t.planetBorder,
-        'border-opacity': 0.5,
+        'background-color': '#000',
+        'background-opacity': 0,
+        'background-image': 'data(bgImage)',
+        'background-image-opacity': 1,
+        'background-fit': 'cover',
+        'border-width': 1.5,
+        'border-color': 'data(satBorder)',
+        'border-opacity': 0.75,
         label: '',
+        color: t.text,
         'overlay-padding': 6,
         'overlay-shape': 'ellipse',
-        events: 'no' // satellites are display-only — no tap, drag, or hover hit-testing
+        events: 'no' // display-only — no tap/drag/hover hit-testing
       }
-    },
-    {
-      selector: 'node.satellite[type = "image"]',
-      style: { 'background-color': t.satImage, shape: 'ellipse', 'overlay-shape': 'ellipse' }
-    },
-    {
-      selector: 'node.satellite[type = "iframe"]',
-      style: { 'background-color': t.satIframe, shape: 'diamond', 'overlay-shape': 'ellipse' }
-    },
-    {
-      selector: 'node.satellite[type = "file"]',
-      style: { 'background-color': t.satFile, shape: 'round-rectangle', 'overlay-shape': 'round-rectangle' }
-    },
-    {
-      selector: 'node.satellite[type = "note"]',
-      style: { 'background-color': t.satNote, shape: 'round-rectangle', 'overlay-shape': 'round-rectangle' }
     },
 
     // EDGES between planets

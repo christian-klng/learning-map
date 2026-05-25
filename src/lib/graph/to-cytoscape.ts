@@ -1,7 +1,13 @@
 import type { NodeRow, EdgeRow } from '$lib/server/db/schema';
 import type cytoscape from 'cytoscape';
-import { planetGlow, planetBorder } from './color';
-import { planetBgImage, type PlanetDesign } from './visual';
+import { planetGlow, planetBorder, lighten } from './color';
+import {
+  planetBgImage,
+  satelliteBgImage,
+  satelliteTypeColor,
+  type PlanetDesign,
+  type SatelliteType
+} from './visual';
 
 const DEFAULT_PLANET_COLOR = '#6366f1'; // indigo fallback
 const DEFAULT_PLANET_DESIGN: PlanetDesign = 'plain';
@@ -72,7 +78,9 @@ export function planetElements(p: Partitioned): cytoscape.ElementDefinition[] {
   return [...nodes, ...edges];
 }
 
-/** Satellite elements positioned in a ring around the planet, plus parent→satellite edges. */
+/** Satellite elements positioned in a ring around the planet, plus parent→satellite edges.
+ *  Satellites are spread along the UPPER semicircle only — leaving the bottom clear
+ *  for the planet's title (which sits below the body). */
 export function satelliteElements(
   parent: { id: string; x: number; y: number; glow: string },
   satellites: NodeRow[],
@@ -81,14 +89,20 @@ export function satelliteElements(
   const n = satellites.length;
   if (n === 0) return [];
 
-  const startAngle = -Math.PI / 2; // first satellite at "12 o'clock"
+  // Arc from 9 o'clock (-π) to 3 o'clock (0), passing through 12 o'clock (-π/2).
+  const arcStart = -Math.PI;
+  const arcLength = Math.PI;
   const els: cytoscape.ElementDefinition[] = [];
 
   for (let i = 0; i < n; i++) {
     const s = satellites[i];
-    const angle = startAngle + (i / n) * Math.PI * 2;
+    const t = (i + 0.5) / n;
+    const angle = arcStart + t * arcLength;
     const x = parent.x + Math.cos(angle) * radius;
     const y = parent.y + Math.sin(angle) * radius;
+
+    const satType = (s.type as SatelliteType) ?? 'note';
+    const satColor = satelliteTypeColor(satType);
     els.push({
       data: {
         id: s.id,
@@ -97,7 +111,9 @@ export function satelliteElements(
         content: s.content,
         isSatellite: true,
         parentPlanet: parent.id,
-        glow: parent.glow // inherit halo colour from the planet
+        glow: parent.glow, // inherit halo colour from the planet
+        bgImage: satelliteBgImage(satType, satColor),
+        satBorder: lighten(satColor, 0.25)
       },
       position: { x, y },
       classes: 'satellite'

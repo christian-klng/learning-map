@@ -163,18 +163,19 @@
     modalTimer = setTimeout(() => {
       selected = next;
       modalTimer = null;
-    }, 650);
+    }, 1300);
   }
 
   function asBox(n: NodeRow): ElementBox {
     return { id: n.id, title: n.title ?? '', type: n.type, content: n.content };
   }
 
-  // Ring radius scales with satellite count so they don't crowd
+  // Ring radius scales with satellite count so they don't crowd.
+  // Satellites span the upper semicircle (arc = π), not the full circle.
   function ringRadius(count: number): number {
     const perSatellite = 75;
-    const fromCircumference = (count * perSatellite) / (2 * Math.PI);
-    return Math.max(120, fromCircumference);
+    const fromArc = (count * perSatellite) / Math.PI;
+    return Math.max(120, fromArc);
   }
 
   function expand(planet: cytoscape.NodeSingular) {
