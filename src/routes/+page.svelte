@@ -27,7 +27,17 @@
 
   let container: HTMLDivElement;
   let cy: cytoscape.Core | undefined;
+  let eh: { enableDrawMode: () => void; disableDrawMode: () => void } | undefined;
   let expandedPlanetId: string | null = null;
+  let drawMode = $state(false);
+  let modalTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function clearModalTimer() {
+    if (modalTimer) {
+      clearTimeout(modalTimer);
+      modalTimer = null;
+    }
+  }
   let selected = $state<{
     planet: ElementBox;
     planetMeta: PlanetMeta;
@@ -106,16 +116,16 @@
       void savePosition(e.target);
     });
 
-    // Edge handles — hover a planet, drag the handle to another planet
-    const eh = (cy as any).edgehandles({
+    // cytoscape-edgehandles v4 uses "draw mode" — toggled via UI button (no hover handle).
+    // When draw mode is on, a click+drag from one planet to another creates an edge.
+    eh = (cy as any).edgehandles({
+      canConnect: (source: any, target: any) =>
+        !source.same(target) && !!source.data('isPlanet') && !!target.data('isPlanet'),
       snap: true,
       noEdgeEventsInDraw: true,
       disableBrowserGestures: true,
-      handleNodes: 'node[?isPlanet]',
-      hoverDelay: 120,
       edgeParams: () => ({ data: { kind: 'reference', label: '' } })
     });
-    eh.enable();
 
     cy.on('ehcomplete', (_evt: any, source: any, target: any, addedEdge: any) => {
       // edgehandles already added a placeholder edge — drop it and create the real one
@@ -125,25 +135,35 @@
   }
 
   function onNodeTap(node: cytoscape.NodeSingular) {
+    if (drawMode) return; // edge drawing owns the gesture
     const data = node.data();
     if (!data.isPlanet) return;
 
     if (expandedPlanetId === node.id()) {
       collapse();
       clearFocus();
+      clearModalTimer();
       selected = null;
       return;
     }
     if (expandedPlanetId) collapse();
+    clearModalTimer();
     expand(node);
+
+    // Show satellites blooming first, THEN open the modal — so the user sees the ring
+    // exists before content covers it. Cancelled if they click another planet / bg first.
     const sats = part.satellitesByParent.get(node.id()) ?? [];
     const planetRow = allNodes.find((n) => n.id === node.id());
-    openInEdit = false;
-    selected = {
+    const next = {
       planet: { id: node.id(), title: data.title, type: data.type, content: data.content },
       planetMeta: planetRow ? planetMetaFromNode(planetRow) : { color: '#6366f1', design: 'plain' },
       satellites: sats.map(asBox)
     };
+    openInEdit = false;
+    modalTimer = setTimeout(() => {
+      selected = next;
+      modalTimer = null;
+    }, 650);
   }
 
   function asBox(n: NodeRow): ElementBox {
@@ -254,6 +274,7 @@
   }
 
   function clearAll() {
+    clearModalTimer();
     collapse();
     clearFocus();
     selected = null;
@@ -446,6 +467,27 @@
 
   /* ---------- create new planet ---------- */
 
+  function toggleDrawMode() {
+    if (!eh) return;
+    drawMode = !drawMode;
+    if (drawMode) {
+      eh.enableDrawMode();
+      // Drop any existing focus so the user can see the whole graph while connecting
+      collapse();
+      clearFocus();
+      selected = null;
+    } else {
+      eh.disableDrawMode();
+    }
+  }
+
+  function onWindowKey(e: KeyboardEvent) {
+    if (e.key === 'Escape' && drawMode) {
+      drawMode = false;
+      eh?.disableDrawMode();
+    }
+  }
+
   async function createNewPlanet() {
     if (!cy) return;
     const idx = part.planets.length;
@@ -531,16 +573,40 @@
     {/key}
   {/if}
 
-  {#if !selected}
+  {#if !selected && !drawMode}
     <div class="hint">click a planet to reveal its satellites</div>
   {/if}
 
-  <button class="fab" onclick={createNewPlanet} aria-label="New planet" title="New planet">
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-      <path d="M10 4V16M4 10H16" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-    </svg>
-  </button>
+  {#if drawMode}
+    <div class="hint banner">Connect mode — drag from one planet to another.</div>
+  {/if}
+
+  <div class="fab-stack">
+    <button
+      class="fab small"
+      class:active={drawMode}
+      onclick={toggleDrawMode}
+      aria-label={drawMode ? 'Exit connect mode' : 'Connect planets'}
+      title={drawMode ? 'Exit connect mode' : 'Connect planets'}
+    >
+      <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
+        <path
+          d="M8 12a3 3 0 0 1 0-4l2-2a3 3 0 0 1 4 4l-1 1M12 8a3 3 0 0 1 0 4l-2 2a3 3 0 0 1-4-4l1-1"
+          stroke="currentColor"
+          stroke-width="1.7"
+          stroke-linecap="round"
+        />
+      </svg>
+    </button>
+    <button class="fab" onclick={createNewPlanet} aria-label="New planet" title="New planet">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+        <path d="M10 4V16M4 10H16" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+      </svg>
+    </button>
+  </div>
 </div>
+
+<svelte:window on:keydown={onWindowKey} />
 
 <style>
   .app {
@@ -601,10 +667,16 @@
     from { opacity: 0; }
     to { opacity: 1; }
   }
-  .fab {
+  .fab-stack {
     position: absolute;
     bottom: 24px;
     right: 24px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    z-index: 9;
+  }
+  .fab {
     width: 52px;
     height: 52px;
     border-radius: 50%;
@@ -620,8 +692,11 @@
       0 1px 0 rgba(255, 255, 255, 0.04) inset,
       0 12px 32px -8px rgba(0, 0, 0, 0.5),
       0 4px 16px -4px rgba(0, 0, 0, 0.3);
-    transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1), border-color 200ms;
-    z-index: 9;
+    transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1), border-color 200ms, background 200ms;
+  }
+  .fab.small {
+    width: 44px;
+    height: 44px;
   }
   .fab:hover {
     transform: translateY(-2px) scale(1.05);
@@ -629,5 +704,21 @@
   }
   .fab:active {
     transform: translateY(0) scale(1);
+  }
+  .fab.active {
+    background: var(--focus-ring);
+    color: var(--bg-base);
+    border-color: var(--focus-ring);
+  }
+  .banner {
+    bottom: 90px;
+    padding: 8px 16px;
+    background: var(--panel-bg);
+    border: 1px solid var(--focus-ring);
+    border-radius: 999px;
+    color: var(--text);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    box-shadow: 0 8px 24px -8px rgba(0, 0, 0, 0.4);
   }
 </style>

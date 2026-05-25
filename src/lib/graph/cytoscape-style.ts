@@ -175,25 +175,8 @@ export function buildStylesheet(): cytoscape.StylesheetJson {
       style: { opacity: 0.15 }
     },
 
-    // -------- cytoscape-edgehandles --------
-    // The drag-handle that appears on planet hover. Without explicit styling it's invisible.
-    {
-      selector: '.eh-handle',
-      style: {
-        'background-color': t.focusRing,
-        'background-opacity': 1,
-        width: 14,
-        height: 14,
-        shape: 'ellipse',
-        'border-width': 2,
-        'border-color': '#ffffff',
-        'border-opacity': 0.9,
-        'overlay-opacity': 0,
-        'z-index': 9999,
-        events: 'no' // handle is decorative — edgehandles handles its own mouse logic
-      }
-    },
-    // Source planet (where you started dragging) — gold ring
+    // -------- cytoscape-edgehandles (v4 — draw-mode model) --------
+    // No hover handle; "draw mode" is toggled in the UI. Style the in-progress visuals.
     {
       selector: '.eh-source',
       style: {
@@ -202,7 +185,6 @@ export function buildStylesheet(): cytoscape.StylesheetJson {
         'border-opacity': 1
       }
     },
-    // Hovered planet during draw — pulsing dashed ring
     {
       selector: '.eh-target',
       style: {
@@ -211,7 +193,6 @@ export function buildStylesheet(): cytoscape.StylesheetJson {
         'border-style': 'dashed'
       }
     },
-    // The live preview edge being drawn
     {
       selector: '.eh-preview, .eh-ghost-edge',
       style: {
@@ -222,7 +203,6 @@ export function buildStylesheet(): cytoscape.StylesheetJson {
         opacity: 0.9
       }
     },
-    // Hide the duplicate ghost edge while a real preview is showing
     {
       selector: '.eh-ghost-edge.eh-preview-active',
       style: { opacity: 0 }
