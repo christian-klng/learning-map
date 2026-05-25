@@ -1,0 +1,16 @@
+@import './lib/styles/themes/space.css';
+@import './lib/styles/themes/light.css';
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+}

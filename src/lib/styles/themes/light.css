@@ -1,0 +1,11 @@
+/* Light theme — override any token to retune. */
+:root.theme-light {
+  --bg: #fafafa;
+  --panel-bg: rgba(255, 255, 255, 0.95);
+  --node-bg: #ffffff;
+  --node-border: #d0d0d0;
+  --compound-bg: #f0f0f5;
+  --edge: #999999;
+  --text: #1a1a1a;
+  --focus-ring: #2563eb;
+}

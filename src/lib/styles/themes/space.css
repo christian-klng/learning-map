@@ -1,0 +1,11 @@
+/* Space (dark) theme — default. Override any token below to tweak the look. */
+:root.theme-space {
+  --bg: radial-gradient(ellipse at 30% 20%, #1a1f3a 0%, #0b1026 40%, #02030a 100%);
+  --panel-bg: rgba(20, 25, 50, 0.72);
+  --node-bg: #1f2547;
+  --node-border: #5b6bff;
+  --compound-bg: #2a3270;
+  --edge: #4a5288;
+  --text: #e8ecff;
+  --focus-ring: #ffd166;
+}
