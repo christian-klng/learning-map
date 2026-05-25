@@ -1,11 +1,35 @@
-/* Space (dark) theme — default. Override any token below to tweak the look. */
+/* Space (dark) theme — deep cosmos with violet planets. */
 :root.theme-space {
-  --bg: radial-gradient(ellipse at 30% 20%, #1a1f3a 0%, #0b1026 40%, #02030a 100%);
-  --panel-bg: rgba(20, 25, 50, 0.72);
-  --node-bg: #1f2547;
-  --node-border: #5b6bff;
-  --compound-bg: #2a3270;
-  --edge: #4a5288;
-  --text: #e8ecff;
-  --focus-ring: #ffd166;
+  /* Backgrounds */
+  --bg-base: #05061a;
+  --bg: radial-gradient(ellipse 80% 60% at 15% 0%, rgba(99, 102, 241, 0.18) 0%, transparent 50%),
+    radial-gradient(ellipse 60% 80% at 100% 100%, rgba(168, 85, 247, 0.12) 0%, transparent 50%),
+    radial-gradient(ellipse at center, #0a0d2e 0%, #05061a 60%, #02030f 100%);
+
+  /* Glass panels */
+  --panel-bg: rgba(15, 18, 45, 0.72);
+  --panel-border: rgba(140, 160, 255, 0.15);
+  --panel-blur: 24px;
+
+  /* Text */
+  --text: #eef0ff;
+  --text-dim: rgba(238, 240, 255, 0.55);
+
+  /* Planet visuals (radial gradient + glow) */
+  --planet-core: #6366f1;
+  --planet-edge: #1e1b4b;
+  --planet-border: #a5b4fc;
+  --planet-glow: #818cf8;
+
+  /* Satellite type colours */
+  --sat-image: #06b6d4;
+  --sat-iframe: #f43f5e;
+  --sat-file: #f59e0b;
+  --sat-note: #10b981;
+
+  /* Edges */
+  --edge: rgba(165, 180, 252, 0.45);
+  --edge-active: #fbbf24;
+  --orbit-edge: rgba(165, 180, 252, 0.35);
+  --focus-ring: #fbbf24;
 }

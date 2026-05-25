@@ -32,6 +32,7 @@
     "cytoscape": "^3.31.0",
     "cytoscape-fcose": "^2.2.0",
     "drizzle-orm": "^0.38.3",
+    "marked": "^18.0.4",
     "pg": "^8.13.1"
   }
 }

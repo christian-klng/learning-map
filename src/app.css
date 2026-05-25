@@ -1,6 +1,8 @@
 @import './lib/styles/themes/space.css';
 @import './lib/styles/themes/light.css';
 
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
 * {
   box-sizing: border-box;
 }
@@ -11,6 +13,14 @@ body {
   padding: 0;
   width: 100%;
   height: 100%;
-  background: var(--bg);
+  background-color: var(--bg-base);
+  background-image: var(--bg);
+  background-attachment: fixed;
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
   color: var(--text);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }

@@ -1,96 +1,175 @@
 import type cytoscape from 'cytoscape';
 
-// Read theme tokens from the document at the moment a stylesheet is built.
-// On theme switch, rebuild + reapply.
 export function readThemeTokens() {
   const s = getComputedStyle(document.documentElement);
+  const get = (k: string) => s.getPropertyValue(k).trim();
   return {
-    bg: s.getPropertyValue('--bg').trim(),
-    nodeBg: s.getPropertyValue('--node-bg').trim(),
-    nodeBorder: s.getPropertyValue('--node-border').trim(),
-    nodeText: s.getPropertyValue('--text').trim(),
-    edge: s.getPropertyValue('--edge').trim(),
-    focusRing: s.getPropertyValue('--focus-ring').trim(),
-    satelliteBg: s.getPropertyValue('--satellite-bg').trim() || s.getPropertyValue('--node-bg').trim(),
-    compoundBg: s.getPropertyValue('--compound-bg').trim()
+    bg: get('--bg-base'),
+    text: get('--text'),
+    textDim: get('--text-dim'),
+
+    planetCore: get('--planet-core'),
+    planetEdge: get('--planet-edge'),
+    planetBorder: get('--planet-border'),
+    planetGlow: get('--planet-glow'),
+
+    satImage: get('--sat-image'),
+    satIframe: get('--sat-iframe'),
+    satFile: get('--sat-file'),
+    satNote: get('--sat-note'),
+
+    edge: get('--edge'),
+    edgeActive: get('--edge-active'),
+    orbitEdge: get('--orbit-edge'),
+    focusRing: get('--focus-ring')
   };
 }
 
 export function buildStylesheet(): cytoscape.StylesheetJson {
   const t = readThemeTokens();
   return [
+    // Default node (rarely matches alone)
     {
       selector: 'node',
       style: {
-        'background-color': t.nodeBg,
-        'border-color': t.nodeBorder,
-        'border-width': 1.5,
         label: 'data(title)',
-        color: t.nodeText,
+        color: t.text,
+        'font-family':
+          '"Inter", "SF Pro Display", -apple-system, system-ui, sans-serif',
         'font-size': 12,
+        'font-weight': 500,
         'text-valign': 'center',
         'text-halign': 'center',
         'text-wrap': 'wrap',
-        'text-max-width': '90px',
-        width: 60,
-        height: 60,
-        'transition-property': 'opacity, border-width, background-color',
-        'transition-duration': 250
+        'text-max-width': '110px',
+        'text-outline-width': 0,
+        'transition-property':
+          'background-color, border-width, border-color, opacity, width, height',
+        'transition-duration': 280,
+        'transition-timing-function': 'ease-in-out'
       }
     },
+
+    // PLANETS — radial gradient, glow, and border all derived from data.baseColor
     {
-      selector: 'node[type = "note"]',
-      style: { shape: 'round-rectangle', width: 90, height: 60 }
-    },
-    {
-      selector: 'node[type = "image"]',
-      style: { shape: 'ellipse', 'background-color': '#7ab2ff' }
-    },
-    {
-      selector: 'node[type = "iframe"]',
-      style: { shape: 'diamond', 'background-color': '#c084fc' }
-    },
-    {
-      selector: 'node[type = "file"]',
-      style: { shape: 'rectangle', 'background-color': '#fbbf24' }
-    },
-    {
-      selector: ':parent',
+      selector: 'node[?isPlanet]',
       style: {
-        'background-color': t.compoundBg,
-        'background-opacity': 0.25,
-        'border-color': t.nodeBorder,
-        'border-width': 1,
-        'border-opacity': 0.6,
-        padding: 20,
-        'text-valign': 'top',
-        'text-margin-y': -8
+        shape: 'ellipse',
+        width: 96,
+        height: 96,
+        'background-fill': 'radial-gradient',
+        'background-gradient-stop-colors': 'data(gradientColors)',
+        'background-gradient-stop-positions': 'data(gradientPositions)',
+        'border-width': 1.5,
+        'border-color': 'data(borderColor)',
+        'border-opacity': 0.65,
+        color: t.text,
+        'font-size': 13,
+        'font-weight': 600,
+        'overlay-shape': 'ellipse'
       }
     },
+
+    // SATELLITES — smaller, type-coloured
+    {
+      selector: 'node.satellite',
+      style: {
+        shape: 'ellipse',
+        width: 44,
+        height: 44,
+        'font-size': 10,
+        'font-weight': 500,
+        color: t.text,
+        'border-width': 1,
+        'border-color': t.planetBorder,
+        'border-opacity': 0.5,
+        label: '',
+        'overlay-padding': 6,
+        'overlay-shape': 'ellipse',
+        events: 'no' // satellites are display-only — no tap, drag, or hover hit-testing
+      }
+    },
+    {
+      selector: 'node.satellite[type = "image"]',
+      style: { 'background-color': t.satImage, shape: 'ellipse', 'overlay-shape': 'ellipse' }
+    },
+    {
+      selector: 'node.satellite[type = "iframe"]',
+      style: { 'background-color': t.satIframe, shape: 'diamond', 'overlay-shape': 'ellipse' }
+    },
+    {
+      selector: 'node.satellite[type = "file"]',
+      style: { 'background-color': t.satFile, shape: 'round-rectangle', 'overlay-shape': 'round-rectangle' }
+    },
+    {
+      selector: 'node.satellite[type = "note"]',
+      style: { 'background-color': t.satNote, shape: 'round-rectangle', 'overlay-shape': 'round-rectangle' }
+    },
+
+    // EDGES between planets
     {
       selector: 'edge',
       style: {
-        width: 1.5,
+        width: 1.2,
         'line-color': t.edge,
-        'target-arrow-color': t.edge,
-        'target-arrow-shape': 'triangle',
         'curve-style': 'bezier',
-        opacity: 0.7,
-        label: 'data(label)',
-        'font-size': 9,
-        color: t.nodeText,
-        'text-background-color': t.bg,
-        'text-background-opacity': 0.8,
-        'text-background-padding': '2px'
+        'control-point-step-size': 60,
+        opacity: 0.55,
+        'target-arrow-shape': 'none',
+        label: '',
+        'transition-property': 'line-color, opacity, width',
+        'transition-duration': 280
       }
     },
+
+    // ORBIT edges (planet → satellite) — dashed, subtle
     {
-      selector: '.focused',
-      style: { 'border-color': t.focusRing, 'border-width': 3, 'z-index': 999 }
+      selector: 'edge.orbit-edge',
+      style: {
+        width: 1,
+        'line-color': t.orbitEdge,
+        'line-style': 'dashed',
+        'line-dash-pattern': [4, 4],
+        opacity: 0.45,
+        label: ''
+      }
     },
+
+    // PRIMARY — the single currently-clicked element. Only one ever has this class,
+    // so there's no overlay stacking. Glows from primary + scene never overlap.
+    {
+      selector: '.primary',
+      style: {
+        'border-color': t.focusRing,
+        'border-width': 3,
+        'border-opacity': 1,
+        'overlay-color': t.focusRing,
+        'overlay-opacity': 0.28,
+        'overlay-padding': 22,
+        // overlay-shape inherits from per-type rule
+        'z-index': 999
+      }
+    },
+    // Planet-specific primary: glow + border use the planet's own colour
+    {
+      selector: 'node[?isPlanet].primary',
+      style: {
+        'border-color': 'data(glow)',
+        'overlay-color': 'data(glow)'
+      }
+    },
+    // Satellite primary: same glow as its parent planet (inherited via data.glow)
+    {
+      selector: 'node.satellite.primary',
+      style: {
+        'border-color': 'data(glow)',
+        'overlay-color': 'data(glow)'
+      }
+    },
+    // DIMMED — everything outside the active scene
     {
       selector: '.dimmed',
-      style: { opacity: 0.2 }
+      style: { opacity: 0.15 }
     }
   ];
 }

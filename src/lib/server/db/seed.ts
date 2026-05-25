@@ -19,7 +19,8 @@ const [photosynthesis] = await db
     title: 'Photosynthesis',
     content: {
       body: '# Photosynthesis\n\nPlants convert light energy into chemical energy stored in glucose.'
-    }
+    },
+    metadata: { color: '#10b981' } // emerald — biology
   } satisfies NewNode)
   .returning();
 
@@ -30,7 +31,8 @@ const [respiration] = await db
     title: 'Cellular respiration',
     content: {
       body: '# Cellular respiration\n\nCells break down glucose to release ATP for energy.'
-    }
+    },
+    metadata: { color: '#f97316' } // orange — energy
   } satisfies NewNode)
   .returning();
 
@@ -41,7 +43,8 @@ const [carbonCycle] = await db
     title: 'The carbon cycle',
     content: {
       body: '# Carbon cycle\n\nCarbon moves between atmosphere, biosphere, oceans, and geosphere.'
-    }
+    },
+    metadata: { color: '#3b82f6' } // blue — atmosphere
   } satisfies NewNode)
   .returning();
 
