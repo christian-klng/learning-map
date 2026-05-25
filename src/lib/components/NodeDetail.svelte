@@ -6,7 +6,7 @@
   let { node, onClose }: Props = $props();
 </script>
 
-<aside class="panel" role="dialog" aria-label={node.title}>
+<div class="panel" role="dialog" aria-label={node.title} aria-modal="false" tabindex="-1">
   <button class="close" onclick={onClose} aria-label="Close">×</button>
   <div class="type-tag">{node.type}</div>
   <h2>{node.title}</h2>
@@ -34,7 +34,7 @@
       <pre>{JSON.stringify(node.content, null, 2)}</pre>
     {/if}
   </div>
-</aside>
+</div>
 
 <style>
   .panel {
