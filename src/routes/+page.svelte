@@ -14,9 +14,19 @@
   import type { NodeRow, EdgeRow } from '$lib/server/db/schema';
   import NodeDetail from '$lib/components/NodeDetail.svelte';
   import ThemeSwitcher from '$lib/components/ThemeSwitcher.svelte';
+  import ModeChip from '$lib/components/ModeChip.svelte';
+  import { session } from '$lib/stores/session';
 
-  type ElementBox = { id: string; title: string; type: string; content: any };
+  type ElementBox = {
+    id: string;
+    title: string;
+    type: string;
+    content: any;
+    createdBy?: string | null;
+    updatedBy?: string | null;
+  };
   type PlanetMeta = { color: string; design: PlanetDesign };
+  type Presence = { connId: string; role: string; name: string | null };
 
   let { data } = $props();
 
@@ -31,6 +41,17 @@
   let expandedPlanetId: string | null = null;
   let drawMode = $state(false);
   let modalTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // Role-derived capability flags. Today: view = read-only, student/admin can edit anything,
+  // admin additionally controls the theme. Keep the two flags separate so adding admin-only
+  // features later doesn't require revisiting every gate.
+  const canEdit = $derived($session.role === 'student' || $session.role === 'admin');
+  const canAdmin = $derived($session.role === 'admin');
+
+  // Realtime presence (from /api/events SSE stream)
+  let myConnId = $state<string | null>(null);
+  let others = $state<Presence[]>([]);
+  let evtSource: EventSource | null = null;
 
   function clearModalTimer() {
     if (modalTimer) {
@@ -111,8 +132,10 @@
       if (e.target === cy) clearAll();
     });
 
-    // Drag-to-pin: save planet position after the user lets go
+    // Drag-to-pin: save planet position after the user lets go.
+    // View mode is read-only, so don't persist drift (Cytoscape still lets the user pan/zoom).
     cy.on('dragfree', 'node[?isPlanet]', (e) => {
+      if (!canEdit) return;
       void savePosition(e.target);
     });
 
@@ -155,7 +178,9 @@
     const sats = part.satellitesByParent.get(node.id()) ?? [];
     const planetRow = allNodes.find((n) => n.id === node.id());
     const next = {
-      planet: { id: node.id(), title: data.title, type: data.type, content: data.content },
+      planet: planetRow
+        ? asBox(planetRow)
+        : { id: node.id(), title: data.title, type: data.type, content: data.content },
       planetMeta: planetRow ? planetMetaFromNode(planetRow) : { color: '#6366f1', design: 'plain' },
       satellites: sats.map(asBox)
     };
@@ -167,7 +192,14 @@
   }
 
   function asBox(n: NodeRow): ElementBox {
-    return { id: n.id, title: n.title ?? '', type: n.type, content: n.content };
+    return {
+      id: n.id,
+      title: n.title ?? '',
+      type: n.type,
+      content: n.content,
+      createdBy: n.createdBy ?? null,
+      updatedBy: n.updatedBy ?? null
+    };
   }
 
   // Ring radius scales with satellite count so they don't crowd.
@@ -322,6 +354,8 @@
       parentId: planetId,
       position: null,
       metadata: {},
+      createdBy: newNode.createdBy ?? null,
+      updatedBy: newNode.updatedBy ?? null,
       createdAt: new Date(),
       updatedAt: new Date()
     };
@@ -489,6 +523,14 @@
     }
   }
 
+  // If the user drops out of edit mode while drawing (e.g. session expired), kill drawMode
+  $effect(() => {
+    if (!canEdit && drawMode) {
+      drawMode = false;
+      eh?.disableDrawMode();
+    }
+  });
+
   async function createNewPlanet() {
     if (!cy) return;
     const idx = part.planets.length;
@@ -534,6 +576,189 @@
     expand(cy.getElementById(node.id));
   }
 
+  /* ---------- SSE: remote change reconciliation ---------- */
+
+  type RemoteEvent = {
+    kind: string;
+    payload: any;
+    actor?: string | null;
+  };
+
+  function applyRemoteEvent(event: RemoteEvent) {
+    switch (event.kind) {
+      case 'node.created': {
+        const raw = event.payload as NodeRow;
+        if (allNodes.some((n) => n.id === raw.id)) return; // we created it locally
+        const node: NodeRow = {
+          ...raw,
+          createdAt: new Date(raw.createdAt as any),
+          updatedAt: new Date(raw.updatedAt as any)
+        };
+        allNodes = [...allNodes, node];
+
+        if (!node.parentId) {
+          cy?.add(planetElement(node, 0));
+        } else {
+          if (expandedPlanetId === node.parentId) refreshRing(node.parentId);
+          if (selected && node.parentId === selected.planet.id) {
+            selected = { ...selected, satellites: [...selected.satellites, asBox(node)] };
+          }
+        }
+        break;
+      }
+      case 'node.updated': {
+        const raw = event.payload as NodeRow;
+        const before = allNodes.find((n) => n.id === raw.id);
+        if (!before) return;
+        const node: NodeRow = {
+          ...raw,
+          createdAt: before.createdAt,
+          updatedAt: new Date(raw.updatedAt as any)
+        };
+        allNodes = allNodes.map((n) => (n.id === node.id ? node : n));
+
+        const cyNode = cy?.getElementById(node.id);
+        if (cyNode?.length) {
+          cyNode.data('title', node.title);
+          cyNode.data('content', node.content);
+
+          const md = (node.metadata ?? {}) as Record<string, unknown>;
+          const newColor = (md.color as string) ?? '#6366f1';
+          const newDesign = ((md.design as PlanetDesign) ?? 'plain') as PlanetDesign;
+          if (
+            cyNode.data('baseColor') !== newColor ||
+            cyNode.data('design') !== newDesign
+          ) {
+            const newBorder = planetBorder(newColor);
+            const newGlow = planetGlow(newColor);
+            const bgImage = planetBgImage(newColor, newDesign);
+            cyNode.data('baseColor', newColor);
+            cyNode.data('design', newDesign);
+            cyNode.data('bgImage', bgImage);
+            cyNode.data('borderColor', newBorder);
+            cyNode.data('glow', newGlow);
+            cyNode.style({ 'background-image': bgImage, 'border-color': newBorder } as any);
+          }
+
+          if (node.position) {
+            const cur = cyNode.position();
+            const pos = node.position as { x: number; y: number };
+            if (cur.x !== pos.x || cur.y !== pos.y) cyNode.position(pos);
+          }
+        }
+
+        if (selected) {
+          const box = asBox(node);
+          if (selected.planet.id === node.id) {
+            selected = { ...selected, planet: box, planetMeta: planetMetaFromNode(node) };
+          } else if (selected.satellites.some((s) => s.id === node.id)) {
+            selected = {
+              ...selected,
+              satellites: selected.satellites.map((s) => (s.id === node.id ? box : s))
+            };
+          }
+        }
+        break;
+      }
+      case 'node.deleted': {
+        const id = event.payload?.id as string | undefined;
+        if (!id) return;
+        const wasPlanet = !allNodes.find((n) => n.id === id)?.parentId;
+        allNodes = allNodes.filter((n) => n.id !== id && n.parentId !== id);
+        allEdges = allEdges.filter((e) => e.sourceId !== id && e.targetId !== id);
+
+        cy?.getElementById(id).remove();
+
+        if (selected) {
+          if (selected.planet.id === id) {
+            clearAll(); // someone deleted the planet I had open
+            break;
+          }
+          if (selected.satellites.some((s) => s.id === id)) {
+            selected = {
+              ...selected,
+              satellites: selected.satellites.filter((s) => s.id !== id)
+            };
+            if (expandedPlanetId) refreshRing(expandedPlanetId);
+          }
+        }
+        if (wasPlanet && expandedPlanetId === id) expandedPlanetId = null;
+        break;
+      }
+      case 'edge.created': {
+        const raw = event.payload as EdgeRow;
+        if (allEdges.some((e) => e.id === raw.id)) return;
+        const edge: EdgeRow = { ...raw, createdAt: new Date(raw.createdAt as any) };
+        allEdges = [...allEdges, edge];
+        cy?.add({
+          data: {
+            id: edge.id,
+            source: edge.sourceId,
+            target: edge.targetId,
+            kind: edge.kind,
+            label: edge.label ?? ''
+          }
+        });
+        break;
+      }
+      case 'edge.deleted': {
+        const id = event.payload?.id as string | undefined;
+        if (!id) return;
+        allEdges = allEdges.filter((e) => e.id !== id);
+        cy?.getElementById(id).remove();
+        break;
+      }
+      case 'presence.joined': {
+        const p = event.payload as Presence;
+        if (p.connId === myConnId) return;
+        if (others.some((o) => o.connId === p.connId)) return;
+        others = [...others, p];
+        break;
+      }
+      case 'presence.left': {
+        const id = event.payload?.connId as string | undefined;
+        if (!id) return;
+        others = others.filter((o) => o.connId !== id);
+        break;
+      }
+    }
+  }
+
+  function connectSse() {
+    evtSource?.close();
+    const es = new EventSource('/api/events');
+    evtSource = es;
+
+    es.addEventListener('snapshot', (e) => {
+      try {
+        const { connId, presence } = JSON.parse((e as MessageEvent).data);
+        myConnId = connId;
+        others = (presence as Presence[]).filter((p) => p.connId !== connId);
+      } catch {
+        // bad snapshot frame — ignore
+      }
+    });
+
+    es.onmessage = (e) => {
+      try {
+        applyRemoteEvent(JSON.parse(e.data) as RemoteEvent);
+      } catch (err) {
+        console.error('[sse] bad event:', err);
+      }
+    };
+    // EventSource auto-reconnects on transient errors; we don't need an onerror handler.
+  }
+
+  // Re-open the SSE stream whenever the session role/name changes, so the server's
+  // presence broadcast reflects who is now connected.
+  let lastSessionKey = '';
+  $effect(() => {
+    const key = `${$session.role}:${$session.name ?? ''}`;
+    if (key === lastSessionKey) return;
+    lastSessionKey = key;
+    connectSse();
+  });
+
   onMount(() => {
     init();
     const unsub = theme.subscribe(() => {
@@ -543,16 +768,36 @@
     return unsub;
   });
 
-  onDestroy(() => cy?.destroy());
+  onDestroy(() => {
+    cy?.destroy();
+    evtSource?.close();
+  });
 </script>
 
 <div class="app">
   <header>
     <div class="brand">
-      <span class="dot"></span>
-      <h1>Learning Map</h1>
+      <span class="brand-mark" aria-hidden="true"></span>
+      <div class="brand-text">
+        <p class="brand-kicker">OBSERVATORY</p>
+        <h1>Learning Map</h1>
+      </div>
     </div>
-    <ThemeSwitcher />
+    <div class="header-right">
+      {#if others.length > 0}
+        <div
+          class="presence"
+          title={others.map((p) => `${p.name ?? 'Anon'} (${p.role})`).join(', ')}
+        >
+          <span class="pulse"></span>
+          <span>{others.length} OTHER{others.length === 1 ? '' : 'S'}</span>
+        </div>
+      {/if}
+      <ModeChip />
+      {#if canAdmin}
+        <ThemeSwitcher />
+      {/if}
+    </div>
   </header>
 
   <div class="graph" bind:this={container}></div>
@@ -570,41 +815,55 @@
         onPlanetDelete={handlePlanetDelete}
         onMetadataChange={handleMetadataChange}
         startInEdit={openInEdit}
+        canEdit={canEdit}
       />
     {/key}
   {/if}
 
   {#if !selected && !drawMode}
-    <div class="hint">click a planet to reveal its satellites</div>
+    <div class="hint">
+      <span class="hint-tick">—</span>
+      <span>
+        {canEdit
+          ? 'CLICK A PLANET TO REVEAL ITS SATELLITES · USE + TO ADD'
+          : 'CLICK A PLANET TO REVEAL ITS SATELLITES'}
+      </span>
+      <span class="hint-tick">—</span>
+    </div>
   {/if}
 
   {#if drawMode}
-    <div class="hint banner">Connect mode — drag from one planet to another.</div>
+    <div class="hint banner">
+      <span class="banner-glyph">⊕</span>
+      <span>CONNECT MODE · DRAG FROM ONE PLANET TO ANOTHER</span>
+    </div>
   {/if}
 
-  <div class="fab-stack">
-    <button
-      class="fab small"
-      class:active={drawMode}
-      onclick={toggleDrawMode}
-      aria-label={drawMode ? 'Exit connect mode' : 'Connect planets'}
-      title={drawMode ? 'Exit connect mode' : 'Connect planets'}
-    >
-      <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
-        <path
-          d="M8 12a3 3 0 0 1 0-4l2-2a3 3 0 0 1 4 4l-1 1M12 8a3 3 0 0 1 0 4l-2 2a3 3 0 0 1-4-4l1-1"
-          stroke="currentColor"
-          stroke-width="1.7"
-          stroke-linecap="round"
-        />
-      </svg>
-    </button>
-    <button class="fab" onclick={createNewPlanet} aria-label="New planet" title="New planet">
-      <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-        <path d="M10 4V16M4 10H16" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-      </svg>
-    </button>
-  </div>
+  {#if canEdit}
+    <div class="fab-stack">
+      <button
+        class="fab small"
+        class:active={drawMode}
+        onclick={toggleDrawMode}
+        aria-label={drawMode ? 'Exit connect mode' : 'Connect planets'}
+        title={drawMode ? 'Exit connect mode' : 'Connect planets'}
+      >
+        <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
+          <path
+            d="M8 12a3 3 0 0 1 0-4l2-2a3 3 0 0 1 4 4l-1 1M12 8a3 3 0 0 1 0 4l-2 2a3 3 0 0 1-4-4l1-1"
+            stroke="currentColor"
+            stroke-width="1.7"
+            stroke-linecap="round"
+          />
+        </svg>
+      </button>
+      <button class="fab" onclick={createNewPlanet} aria-label="New planet" title="New planet">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <path d="M10 4V16M4 10H16" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+        </svg>
+      </button>
+    </div>
+  {/if}
 </div>
 
 <svelte:window on:keydown={onWindowKey} />
@@ -633,21 +892,51 @@
   .brand {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 14px;
   }
-  .dot {
-    width: 10px;
-    height: 10px;
+  /* Tiny "ringed planet" ornament drawn purely from borders */
+  .brand-mark {
+    position: relative;
+    width: 22px;
+    height: 22px;
     border-radius: 50%;
-    background: radial-gradient(circle at 30% 30%, var(--planet-border), var(--planet-edge));
-    box-shadow: 0 0 12px var(--planet-glow);
+    background: radial-gradient(circle at 35% 30%, var(--planet-border), var(--planet-edge) 70%);
+    box-shadow: 0 0 14px rgba(140, 160, 255, 0.18);
+    flex-shrink: 0;
+  }
+  .brand-mark::after {
+    content: '';
+    position: absolute;
+    left: -5px;
+    right: -5px;
+    top: 50%;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--text), transparent);
+    opacity: 0.45;
+    transform: rotate(-18deg);
+  }
+  .brand-text {
+    display: flex;
+    flex-direction: column;
+    line-height: 1;
+  }
+  .brand-kicker {
+    margin: 0 0 2px;
+    font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 9.5px;
+    letter-spacing: 0.22em;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    opacity: 0.7;
   }
   h1 {
-    font-size: 14px;
-    font-weight: 600;
     margin: 0;
-    letter-spacing: 0.02em;
-    opacity: 0.85;
+    font-family: 'Fraunces', ui-serif, Georgia, serif;
+    font-optical-sizing: auto;
+    font-weight: 500;
+    font-size: 18px;
+    letter-spacing: -0.005em;
+    line-height: 1.1;
   }
   .graph {
     position: absolute;
@@ -655,14 +944,25 @@
   }
   .hint {
     position: absolute;
-    bottom: 22px;
+    bottom: 26px;
     left: 50%;
     transform: translateX(-50%);
     color: var(--text-dim);
-    font-size: 12px;
-    letter-spacing: 0.04em;
+    font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
     pointer-events: none;
     animation: fadeIn 1.6s ease-out;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    white-space: nowrap;
+  }
+  .hint-tick {
+    color: var(--focus-ring);
+    opacity: 0.6;
+    font-family: 'Fraunces', serif;
   }
   @keyframes fadeIn {
     from { opacity: 0; }
@@ -678,8 +978,8 @@
     z-index: 9;
   }
   .fab {
-    width: 52px;
-    height: 52px;
+    width: 48px;
+    height: 48px;
     border-radius: 50%;
     background: var(--panel-bg);
     border: 1px solid var(--panel-border);
@@ -687,39 +987,100 @@
     cursor: pointer;
     display: grid;
     place-items: center;
-    backdrop-filter: blur(12px) saturate(140%);
-    -webkit-backdrop-filter: blur(12px) saturate(140%);
+    backdrop-filter: blur(14px) saturate(160%);
+    -webkit-backdrop-filter: blur(14px) saturate(160%);
     box-shadow:
       0 1px 0 rgba(255, 255, 255, 0.04) inset,
-      0 12px 32px -8px rgba(0, 0, 0, 0.5),
-      0 4px 16px -4px rgba(0, 0, 0, 0.3);
+      0 10px 28px -8px rgba(0, 0, 0, 0.45),
+      0 3px 12px -3px rgba(0, 0, 0, 0.28);
     transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1), border-color 200ms, background 200ms;
+    position: relative;
+  }
+  /* Hairline tick at the FAB's edge — instrument-panel detail */
+  .fab::after {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    border-radius: 50%;
+    border: 1px solid transparent;
+    transition: border-color 250ms;
+    pointer-events: none;
   }
   .fab.small {
-    width: 44px;
-    height: 44px;
+    width: 40px;
+    height: 40px;
   }
   .fab:hover {
-    transform: translateY(-2px) scale(1.05);
+    transform: translateY(-2px);
     border-color: var(--focus-ring);
   }
+  .fab:hover::after {
+    border-color: rgba(255, 255, 255, 0.06);
+  }
   .fab:active {
-    transform: translateY(0) scale(1);
+    transform: translateY(0);
   }
   .fab.active {
     background: var(--focus-ring);
     color: var(--bg-base);
     border-color: var(--focus-ring);
   }
+  .fab.active::after {
+    border-color: var(--focus-ring);
+    opacity: 0.35;
+  }
   .banner {
-    bottom: 90px;
-    padding: 8px 16px;
+    bottom: 92px;
+    padding: 8px 14px;
     background: var(--panel-bg);
     border: 1px solid var(--focus-ring);
-    border-radius: 999px;
+    border-radius: 4px; /* squarer — feels like a status read-out, not a pill */
     color: var(--text);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    box-shadow: 0 8px 24px -8px rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    box-shadow: 0 8px 24px -8px rgba(0, 0, 0, 0.45);
+    letter-spacing: 0.16em;
+    font-size: 10.5px;
+    gap: 8px;
+  }
+  .banner-glyph {
+    color: var(--focus-ring);
+    font-family: 'Fraunces', serif;
+    font-size: 13px;
+    line-height: 1;
+  }
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .presence {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px 6px 10px;
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 6px;
+    font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.14em;
+    color: var(--text-dim);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    cursor: default;
+  }
+  .pulse {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #10b981;
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5);
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
+    70%  { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
   }
 </style>

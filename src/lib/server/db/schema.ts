@@ -26,6 +26,8 @@ export const nodes = pgTable(
     parentId: uuid('parent_id').references((): any => nodes.id, { onDelete: 'cascade' }),
     position: jsonb('position').$type<{ x: number; y: number } | null>(),
     metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
+    createdBy: text('created_by'),
+    updatedBy: text('updated_by'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
   },
@@ -47,6 +49,7 @@ export const edges = pgTable(
     kind: text('kind').$type<EdgeKind>().notNull().default('reference'),
     label: text('label'),
     metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
+    createdBy: text('created_by'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
   },
   (t) => [index('edges_source_id_idx').on(t.sourceId), index('edges_target_id_idx').on(t.targetId)]

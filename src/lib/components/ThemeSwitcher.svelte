@@ -27,11 +27,11 @@
     display: inline-flex;
     background: var(--panel-bg);
     border: 1px solid var(--panel-border);
-    border-radius: 10px;
-    padding: 3px;
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    box-shadow: 0 4px 16px -4px rgba(0, 0, 0, 0.2);
+    border-radius: 6px;
+    padding: 2px;
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    box-shadow: 0 4px 16px -4px rgba(0, 0, 0, 0.22);
   }
   button {
     display: inline-flex;
@@ -40,10 +40,12 @@
     background: transparent;
     border: none;
     color: var(--text);
-    padding: 5px 12px;
-    border-radius: 7px;
-    font-family: inherit;
-    font-size: 12px;
+    padding: 5px 10px;
+    border-radius: 4px;
+    font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
     font-weight: 500;
     cursor: pointer;
     opacity: 0.55;
@@ -54,7 +56,7 @@
   }
   button.active {
     opacity: 1;
-    background: var(--planet-border);
+    background: var(--focus-ring);
     color: var(--bg-base);
   }
   .icon {

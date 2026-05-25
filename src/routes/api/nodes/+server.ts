@@ -1,11 +1,15 @@
 import { json, error } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
 import { nodes, type NewNode, type NodeType } from '$lib/server/db/schema';
+import { hasRole } from '$lib/server/auth';
+import { notify } from '$lib/server/realtime';
 import type { RequestHandler } from './$types';
 
 const VALID_TYPES: NodeType[] = ['note', 'image', 'file', 'iframe', 'quiz'];
 
-export const POST: RequestHandler = async ({ request }) => {
+export const POST: RequestHandler = async ({ request, locals }) => {
+  if (!hasRole(locals.role, 'student')) throw error(403, 'edit mode required');
+
   const body = await request.json().catch(() => null);
   if (!body || typeof body !== 'object') throw error(400, 'invalid body');
 
@@ -22,9 +26,12 @@ export const POST: RequestHandler = async ({ request }) => {
       content: (content as any) ?? {},
       parentId: parentId ?? null,
       metadata: (metadata as any) ?? {},
-      position: (position as any) ?? null
+      position: (position as any) ?? null,
+      createdBy: locals.name,
+      updatedBy: locals.name
     })
     .returning();
 
+  notify({ kind: 'node.created', payload: row, actor: locals.name });
   return json(row, { status: 201 });
 };

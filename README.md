@@ -93,6 +93,9 @@ Set these on the Application in Coolify:
 |---|---|---|
 | `DATABASE_URL` | `postgres://...` | Coolify offers an "Connect" button on the Postgres resource — use the **internal** URL (resolves over the Docker network). |
 | `ORIGIN` | `https://your-domain.example` | **Required.** SvelteKit's adapter-node uses this for CSRF protection on POST/PATCH/DELETE. Must match the public URL Coolify routes to. |
+| `STUDENT_PASSWORD` | _your choice_ | Password for student edit mode. Share with the class. |
+| `ADMIN_PASSWORD` | _your choice_ | Teacher-only password. Adds theme control on top of student edit. |
+| `SESSION_SECRET` | _32+ random chars_ | HMAC key for signed session cookies. Generate with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. **App refuses to start in production without this.** |
 | `NODE_ENV` | `production` | Already set in the Dockerfile, harmless to repeat. |
 
 The Dockerfile already sets `HOST=0.0.0.0`, `PORT=3000`, and `BODY_SIZE_LIMIT=20M`. Coolify exposes 3000 internally and Traefik handles SSL on the public side.
@@ -103,12 +106,28 @@ The Dockerfile already sets `HOST=0.0.0.0`, `PORT=3000`, and `BODY_SIZE_LIMIT=20
 - Push to the connected branch → Coolify rebuilds the image → runs migrations → starts the server.
 - First deploy: the DB is empty. Run `npm run db:seed` against the prod DB once if you want the demo content (or just create planets via the `+` button).
 
+## Modes
+
+A chip in the top-right toggles between three modes. The current mode lives in a signed,
+http-only cookie, so it survives refresh and works per-browser.
+
+| Mode | What you can do | How to enter |
+|---|---|---|
+| **View** | Read everything. Click planets, open modals, read content. No edit affordances. | Default. Click "Lock to view" from any other mode. |
+| **Edit** (student) | Add / edit / delete planets, satellites, edges. Drag to reposition. Change planet color & design. | Type your name + the student password. Lasts 4h. |
+| **Admin** (teacher) | Everything above + theme switcher. Reserved for future admin-only operations. | Admin password. Optional name (defaults to "Teacher"). Lasts 1h. |
+
+A presence pill near the chip shows other people currently connected. Edits broadcast over
+Server-Sent Events (Postgres `LISTEN/NOTIFY` → fan-out) so classmates see changes in real time
+without refreshing.
+
 ## Roadmap
 
-- **Phase 0** (this) — scaffolding, schema, Cytoscape rendering of seed data, theme system ✅
-- **Phase 1** — full node/edge CRUD via REST, drag-to-pin, edge creation UI
-- **Phase 2** — file/image upload to `/app/uploads`, richer detail panel, markdown editor
-- **Phase 3** — Postgres `LISTEN/NOTIFY` + Socket.IO for live classroom sync
-- **Phase 4** — Coolify deploy + first classroom test
-- **Phase 5** — Auth (Lucia), per-user paths and highlights
+- **Phase 0** — scaffolding, schema, Cytoscape rendering, theme system ✅
+- **Phase 1a/b** — full node/edge CRUD, drag-to-pin, edge creation UI ✅
+- **Phase 3** — realtime sync via Postgres `LISTEN/NOTIFY` + SSE ✅
+- **Phase 4** — Coolify deploy ✅
+- **Phase 5a** — student access with mode toggle + author stamping ✅
+- **Phase 2** — file/image upload to `/app/uploads`, richer media handling
+- **Phase 5b** — proper auth (Lucia), per-user paths and highlights
 - **Phase 6** — Quiz node type, interactive elements
