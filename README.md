@@ -72,14 +72,36 @@ Satellites use `parent_id`; knowledge connections use `edges`. The two relations
 
 To add a new theme: create `src/lib/styles/themes/<name>.css` with a `:root.theme-<name>` selector defining the same tokens, import it from `app.css`, and extend the `Theme` type + switcher.
 
-## Deploy (Coolify)
+## Deploy (Coolify on Hetzner)
 
-Out of scope for Phase 0 — covered in Phase 5. In short:
+The `Dockerfile` runs `node migrate.mjs && node build` on boot — schema migrations are applied automatically before the server starts.
 
-1. Coolify project with two resources: **Postgres** (managed template) + **Application** (this repo, Dockerfile build).
-2. Application → **Persistent Storage** → add named volume `uploads` mounted at `/app/uploads`.
-3. Set `DATABASE_URL` env var to the in-network Postgres URL Coolify provides.
-4. First deploy runs migrations on boot (TODO in Phase 5).
+### One-time Coolify setup
+
+1. **Application** resource → connect to this GitHub repo. Build pack should auto-detect **Dockerfile**.
+2. **Postgres** resource in the same project (Coolify template is fine).
+3. In the Application's **Storage** tab, add a **Persistent Storage Volume**:
+   - Name: `uploads`
+   - Mount path: `/app/uploads`
+   - (Used in Phase 2 for file/image uploads. Add it now so the volume survives later deploys.)
+
+### Required environment variables
+
+Set these on the Application in Coolify:
+
+| Variable | Value | Notes |
+|---|---|---|
+| `DATABASE_URL` | `postgres://...` | Coolify offers an "Connect" button on the Postgres resource — use the **internal** URL (resolves over the Docker network). |
+| `ORIGIN` | `https://your-domain.example` | **Required.** SvelteKit's adapter-node uses this for CSRF protection on POST/PATCH/DELETE. Must match the public URL Coolify routes to. |
+| `NODE_ENV` | `production` | Already set in the Dockerfile, harmless to repeat. |
+
+The Dockerfile already sets `HOST=0.0.0.0`, `PORT=3000`, and `BODY_SIZE_LIMIT=20M`. Coolify exposes 3000 internally and Traefik handles SSL on the public side.
+
+### Health & deploy
+
+- The container exposes `GET /` as a healthcheck (HTTP 200 once SvelteKit is ready).
+- Push to the connected branch → Coolify rebuilds the image → runs migrations → starts the server.
+- First deploy: the DB is empty. Run `npm run db:seed` against the prod DB once if you want the demo content (or just create planets via the `+` button).
 
 ## Roadmap
 
