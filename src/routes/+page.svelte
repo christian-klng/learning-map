@@ -138,7 +138,9 @@
     }
 
     cy.on('tap', 'node', (e) => onNodeTap(e.target));
-    cy.on('tap', 'edge:not(.orbit-edge)', (e) => onEdgeTap(e.target));
+    cy.on('tap', 'edge', (e) => {
+      if (!e.target.hasClass('orbit-edge')) onEdgeTap(e.target);
+    });
     cy.on('tap', (e) => {
       if (e.target === cy) clearAll();
     });
