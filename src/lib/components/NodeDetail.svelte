@@ -536,8 +536,7 @@ Write markdown here. Lists, **bold**, *italic*, [links](url), `code` all work."
                           quizState = { ...quizState, [box.id]: { ...qs, selected: i, correct: true } };
                           setTimeout(() => onQuizCorrect?.(), 1000);
                         } else {
-                          const wrong = new Set(qs.wrong);
-                          wrong.add(i);
+                          const wrong = new Set([i]);
                           quizState = { ...quizState, [box.id]: { ...qs, selected: i, wrong } };
                         }
                       }}
