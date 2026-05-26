@@ -39,6 +39,7 @@
 
   let container: HTMLDivElement;
   let cy: cytoscape.Core | undefined;
+  let cyReady = $state(false);
   let eh: { enableDrawMode: () => void; disableDrawMode: () => void } | undefined;
   let expandedPlanetId: string | null = null;
   let drawMode = $state(false);
@@ -165,6 +166,8 @@
       addedEdge.remove();
       void createEdge(source.id(), target.id());
     });
+
+    cyReady = true;
   }
 
   function onNodeTap(node: cytoscape.NodeSingular) {
@@ -611,7 +614,7 @@
 
   // Sync unlock state → Cytoscape `.locked` class (view mode only)
   $effect(() => {
-    if (!cy) return;
+    if (!cyReady || !cy) return;
     if (canEdit) {
       cy.nodes('node[?isPlanet]').removeClass('locked');
       return;
@@ -651,15 +654,12 @@
     setTimeout(() => {
       if (!cy) return;
 
-      // Remove locked class + animate planets in
+      // Remove locked class — the Cytoscape CSS transition (280ms) handles the fade-in
       for (const id of children) {
         const node = cy.getElementById(id);
         if (!node.length) continue;
         node.removeClass('locked');
-        node.animate(
-          { style: { opacity: 1 } as any },
-          { duration: 600, easing: 'ease-out' }
-        );
+        node.style('opacity', 1);
       }
 
       // Glow the connecting edges
