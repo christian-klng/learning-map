@@ -48,6 +48,7 @@ export const edges = pgTable(
       .references(() => nodes.id, { onDelete: 'cascade' }),
     kind: text('kind').$type<EdgeKind>().notNull().default('reference'),
     label: text('label'),
+    unlockDirection: text('unlock_direction').$type<'source' | 'target'>(),
     metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
     createdBy: text('created_by'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()

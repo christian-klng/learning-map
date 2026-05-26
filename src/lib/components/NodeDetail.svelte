@@ -29,6 +29,7 @@
     onAdd?: (node: ElementBox) => void;
     onPlanetDelete?: (id: string) => void;
     onMetadataChange?: (patch: Partial<PlanetMeta>) => void;
+    onQuizCorrect?: () => void;
     startInEdit?: boolean;
     canEdit?: boolean;
   }
@@ -42,9 +43,13 @@
     onAdd,
     onPlanetDelete,
     onMetadataChange,
+    onQuizCorrect,
     startInEdit = false,
     canEdit = false
   }: Props = $props();
+
+  // Quiz interaction state (per-quiz, keyed by box id)
+  let quizState = $state<Record<string, { selected: number | null; wrong: Set<number>; correct: boolean }>>({});
 
   let editing = $state(startInEdit && canEdit);
   $effect(() => {
@@ -164,12 +169,13 @@
     }
   }
 
-  async function createSatellite(type: 'note' | 'image' | 'iframe' | 'file') {
+  async function createSatellite(type: 'note' | 'image' | 'iframe' | 'file' | 'quiz') {
     const defaults = {
       note: { title: 'New note', content: { body: '' } },
       image: { title: '', content: { url: '', alt: '' } },
       iframe: { title: 'External page', content: { url: '' } },
-      file: { title: 'File', content: { url: '', filename: '', mime: '', size: 0 } }
+      file: { title: 'File', content: { url: '', filename: '', mime: '', size: 0 } },
+      quiz: { title: 'Quiz', content: { question: '', choices: ['', ''], answer: 0 } }
     }[type];
 
     const res = await fetch('/api/nodes', {
@@ -456,6 +462,92 @@ Write markdown here. Lists, **bold**, *italic*, [links](url), `code` all work."
                   </div>
                 </a>
               {/if}
+            {:else if box.type === 'quiz'}
+              {#if editing}
+                <label class="field">
+                  <span>QUESTION</span>
+                  <textarea
+                    class="md-edit quiz-question-edit"
+                    value={box.content?.question ?? ''}
+                    placeholder="What is…?"
+                    onblur={(e) =>
+                      saveContent(box, { ...box.content, question: e.currentTarget.value })}
+                  ></textarea>
+                </label>
+                <div class="quiz-choices-edit">
+                  <span class="picker-label">CHOICES</span>
+                  {#each (box.content?.choices ?? []) as choice, i}
+                    <div class="quiz-choice-row">
+                      <input
+                        type="radio"
+                        name="quiz-correct-{box.id}"
+                        checked={(box.content?.answer ?? 0) === i}
+                        onchange={() =>
+                          saveContent(box, { ...box.content, answer: i })}
+                        title="Mark as correct answer"
+                      />
+                      <input
+                        class="quiz-choice-input"
+                        value={choice}
+                        placeholder="Answer {i + 1}"
+                        onblur={(e) => {
+                          const choices = [...(box.content?.choices ?? [])];
+                          choices[i] = e.currentTarget.value;
+                          saveContent(box, { ...box.content, choices });
+                        }}
+                      />
+                      {#if (box.content?.choices?.length ?? 0) > 2}
+                        <button
+                          class="quiz-choice-remove"
+                          onclick={() => {
+                            const choices = [...(box.content?.choices ?? [])];
+                            choices.splice(i, 1);
+                            const answer = (box.content?.answer ?? 0) >= i && (box.content?.answer ?? 0) > 0
+                              ? (box.content?.answer ?? 0) - 1
+                              : (box.content?.answer ?? 0);
+                            saveContent(box, { ...box.content, choices, answer });
+                          }}
+                          aria-label="Remove choice"
+                        >&times;</button>
+                      {/if}
+                    </div>
+                  {/each}
+                  <button
+                    class="quiz-add-choice"
+                    onclick={() => {
+                      const choices = [...(box.content?.choices ?? []), ''];
+                      saveContent(box, { ...box.content, choices });
+                    }}
+                  >+ Add choice</button>
+                </div>
+              {:else}
+                {@const qs = quizState[box.id] ?? { selected: null, wrong: new Set(), correct: false }}
+                <div class="quiz-question">{box.content?.question}</div>
+                <div class="quiz-choices">
+                  {#each (box.content?.choices ?? []) as choice, i}
+                    <button
+                      class="quiz-choice"
+                      class:quiz-wrong={qs.wrong.has(i)}
+                      class:quiz-correct={qs.correct && (box.content?.answer ?? 0) === i}
+                      disabled={qs.correct}
+                      onclick={() => {
+                        const correctIdx = box.content?.answer ?? 0;
+                        if (i === correctIdx) {
+                          quizState = { ...quizState, [box.id]: { ...qs, selected: i, correct: true } };
+                          setTimeout(() => onQuizCorrect?.(), 1000);
+                        } else {
+                          const wrong = new Set(qs.wrong);
+                          wrong.add(i);
+                          quizState = { ...quizState, [box.id]: { ...qs, selected: i, wrong } };
+                        }
+                      }}
+                    >
+                      <span class="quiz-choice-marker">{String.fromCharCode(65 + i)}</span>
+                      <span>{choice}</span>
+                    </button>
+                  {/each}
+                </div>
+              {/if}
             {:else}
               <pre>{JSON.stringify(box.content, null, 2)}</pre>
             {/if}
@@ -501,6 +593,10 @@ Write markdown here. Lists, **bold**, *italic*, [links](url), `code` all work."
             <button onclick={() => createSatellite('file')}>
               <span class="type-glyph">▤</span>
               <span>File</span>
+            </button>
+            <button onclick={() => createSatellite('quiz')}>
+              <span class="type-glyph">?</span>
+              <span>Quiz</span>
             </button>
           </div>
         </article>
@@ -1161,6 +1257,144 @@ Write markdown here. Lists, **bold**, *italic*, [links](url), `code` all work."
     color: var(--planet-accent);
     width: 18px;
     text-align: center;
+  }
+
+  /* ===== Quiz (view mode) ===== */
+  .quiz-question {
+    font-family: 'Fraunces', ui-serif, Georgia, serif;
+    font-weight: 500;
+    font-size: 18px;
+    line-height: 1.3;
+    margin-bottom: 8px;
+  }
+  .quiz-choices {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .quiz-choice {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1.5px solid var(--panel-border);
+    border-radius: 4px;
+    color: var(--text);
+    cursor: pointer;
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 14px;
+    text-align: left;
+    transition: all 200ms;
+  }
+  .quiz-choice:hover:not(:disabled) {
+    border-color: var(--planet-accent);
+    transform: translateY(-1px);
+  }
+  .quiz-choice:disabled {
+    cursor: default;
+    opacity: 0.7;
+  }
+  .quiz-choice-marker {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    color: var(--text-dim);
+    width: 22px;
+    height: 22px;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--panel-border);
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .quiz-wrong {
+    border-color: #ef4444;
+    background: rgba(239, 68, 68, 0.1);
+  }
+  .quiz-wrong .quiz-choice-marker {
+    border-color: #ef4444;
+    color: #ef4444;
+  }
+  .quiz-correct {
+    border-color: #22c55e;
+    background: rgba(34, 197, 94, 0.12);
+  }
+  .quiz-correct .quiz-choice-marker {
+    border-color: #22c55e;
+    color: #22c55e;
+    background: rgba(34, 197, 94, 0.15);
+  }
+
+  /* ===== Quiz (edit mode) ===== */
+  .quiz-question-edit {
+    min-height: 80px;
+  }
+  .quiz-choices-edit {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .quiz-choice-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .quiz-choice-row input[type='radio'] {
+    accent-color: var(--planet-accent);
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    cursor: pointer;
+  }
+  .quiz-choice-input {
+    flex: 1;
+    background: rgba(0, 0, 0, 0.15);
+    border: 1px solid var(--panel-border);
+    color: var(--text);
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 13.5px;
+    padding: 9px 11px;
+    border-radius: 3px;
+    outline: none;
+  }
+  .quiz-choice-input:focus {
+    border-color: var(--planet-accent);
+  }
+  .quiz-choice-remove {
+    width: 28px;
+    height: 28px;
+    display: grid;
+    place-items: center;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+  .quiz-choice-remove:hover {
+    border-color: var(--panel-border);
+    color: #ef4444;
+  }
+  .quiz-add-choice {
+    align-self: flex-start;
+    background: transparent;
+    border: 1px dashed var(--panel-border);
+    color: var(--planet-accent);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    padding: 6px 14px;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 150ms;
+  }
+  .quiz-add-choice:hover {
+    border-color: var(--planet-accent);
   }
 
   /* ===== Responsive ===== */

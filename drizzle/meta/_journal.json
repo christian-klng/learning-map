@@ -15,6 +15,13 @@
       "when": 1779713850368,
       "tag": "0001_rich_bishop",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1779776836561,
+      "tag": "0002_burly_stone_men",
+      "breakpoints": true
     }
   ]
 }

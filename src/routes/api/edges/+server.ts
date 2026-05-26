@@ -13,11 +13,14 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   const body = await request.json().catch(() => null);
   if (!body || typeof body !== 'object') throw error(400, 'invalid body');
 
-  const { sourceId, targetId, kind, label, metadata } = body as Partial<NewEdge>;
+  const { sourceId, targetId, kind, label, metadata, unlockDirection } = body as Partial<NewEdge>;
   if (!sourceId || !targetId) throw error(400, 'sourceId and targetId required');
   if (sourceId === targetId) throw error(400, 'self-loops not allowed');
   if (kind && !VALID_KINDS.includes(kind as EdgeKind)) {
     throw error(400, 'invalid edge kind');
+  }
+  if (unlockDirection && unlockDirection !== 'source' && unlockDirection !== 'target') {
+    throw error(400, 'unlockDirection must be "source", "target", or null');
   }
 
   const [row] = await db
@@ -27,6 +30,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       targetId,
       kind: (kind as EdgeKind) ?? 'reference',
       label: label ?? null,
+      unlockDirection: unlockDirection ?? null,
       metadata: (metadata as any) ?? {},
       createdBy: locals.name
     })

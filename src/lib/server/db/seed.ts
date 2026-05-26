@@ -48,6 +48,19 @@ const [carbonCycle] = await db
   } satisfies NewNode)
   .returning();
 
+const [ecosystems] = await db
+  .insert(nodes)
+  .values({
+    type: 'note',
+    title: 'Ecosystems',
+    content: {
+      body: '# Ecosystems\n\nAn ecosystem includes all living organisms and their physical environment, interacting as a system.'
+    },
+    metadata: { color: '#a855f7', design: 'swirl' }, // purple — ecology
+    position: { x: 450, y: -100 }
+  } satisfies NewNode)
+  .returning();
+
 // Satellites of "photosynthesis"
 await db.insert(nodes).values([
   {
@@ -70,6 +83,16 @@ await db.insert(nodes).values([
     title: 'Chlorophyll',
     parentId: photosynthesis.id,
     content: { body: 'Green pigment that absorbs red and blue light.' }
+  },
+  {
+    type: 'quiz',
+    title: 'Quick check',
+    parentId: photosynthesis.id,
+    content: {
+      question: 'What is the primary pigment in photosynthesis?',
+      choices: ['Hemoglobin', 'Chlorophyll', 'Melanin', 'Keratin'],
+      answer: 1
+    }
   }
 ] satisfies NewNode[]);
 
@@ -102,12 +125,23 @@ await db.insert(nodes).values([
   }
 ] satisfies NewNode[]);
 
-// Knowledge connections between the three planets
+// Satellite of "ecosystems"
+await db.insert(nodes).values([
+  {
+    type: 'note',
+    title: 'Food webs',
+    parentId: ecosystems.id,
+    content: { body: 'A food web shows the interconnected food chains within an ecosystem, illustrating energy flow from producers to consumers.' }
+  }
+] satisfies NewNode[]);
+
+// Knowledge connections between planets
 await db.insert(edges).values([
   { sourceId: photosynthesis.id, targetId: respiration.id, kind: 'related', label: 'inverse process' },
   { sourceId: photosynthesis.id, targetId: carbonCycle.id, kind: 'related', label: 'fixes CO₂' },
-  { sourceId: respiration.id, targetId: carbonCycle.id, kind: 'related', label: 'releases CO₂' }
+  { sourceId: respiration.id, targetId: carbonCycle.id, kind: 'related', label: 'releases CO₂' },
+  { sourceId: photosynthesis.id, targetId: ecosystems.id, kind: 'leads_to', label: 'energy source', unlockDirection: 'source' }
 ] satisfies NewEdge[]);
 
 await pool.end();
-console.log('seed: 3 planets + 6 satellites + 3 edges');
+console.log('seed: 4 planets + 8 satellites + 4 edges (1 directed)');

@@ -13,9 +13,11 @@
   import { PLANET_PALETTE, planetBgImage, type PlanetDesign } from '$lib/graph/visual';
   import type { NodeRow, EdgeRow } from '$lib/server/db/schema';
   import NodeDetail from '$lib/components/NodeDetail.svelte';
+  import EdgePopover from '$lib/components/EdgePopover.svelte';
   import ThemeSwitcher from '$lib/components/ThemeSwitcher.svelte';
   import ModeChip from '$lib/components/ModeChip.svelte';
   import { session } from '$lib/stores/session';
+  import { unlockedIds, computeInitialUnlocked, getChildPlanetIds } from '$lib/stores/unlock';
 
   type ElementBox = {
     id: string;
@@ -65,6 +67,14 @@
     satellites: ElementBox[];
   } | null>(null);
   let openInEdit = $state(false);
+  let edgePopover = $state<{
+    edgeId: string;
+    sourceTitle: string;
+    targetTitle: string;
+    unlockDirection: 'source' | 'target' | null;
+    x: number;
+    y: number;
+  } | null>(null);
 
   function planetMetaFromNode(n: NodeRow): PlanetMeta {
     const md = (n.metadata ?? {}) as Record<string, unknown>;
@@ -161,6 +171,20 @@
     if (drawMode) return; // edge drawing owns the gesture
     const data = node.data();
     if (!data.isPlanet) return;
+
+    // In view mode, locked planets can't be opened — flash red as rejection
+    if (!canEdit && !$unlockedIds.has(node.id())) {
+      node.animate(
+        { style: { 'border-color': '#ef4444', 'border-width': 4, 'border-opacity': 1 } as any },
+        { duration: 200, easing: 'ease-out', complete: () => {
+          node.animate(
+            { style: { 'border-color': node.data('borderColor'), 'border-width': 2, 'border-opacity': 0.5 } as any },
+            { duration: 400, easing: 'ease-in' }
+          );
+        }}
+      );
+      return;
+    }
 
     if (expandedPlanetId === node.id()) {
       collapse();
@@ -311,6 +335,7 @@
     collapse();
     clearFocus();
     selected = null;
+    edgePopover = null;
   }
 
   /* ---------- mutation callbacks ---------- */
@@ -417,16 +442,63 @@
     });
   }
 
-  async function onEdgeTap(edge: cytoscape.EdgeSingular) {
-    if (!confirm('Delete this connection?')) return;
+  function onEdgeTap(edge: cytoscape.EdgeSingular) {
+    if (!canEdit) return;
     const id = edge.id();
+    const edgeRow = allEdges.find((e) => e.id === id);
+    if (!edgeRow) return;
+
+    const sourceNode = allNodes.find((n) => n.id === edgeRow.sourceId);
+    const targetNode = allNodes.find((n) => n.id === edgeRow.targetId);
+
+    // Convert edge midpoint to screen coordinates
+    const mid = edge.midpoint();
+    const pan = cy!.pan();
+    const zoom = cy!.zoom();
+    const screenX = mid.x * zoom + pan.x;
+    const screenY = mid.y * zoom + pan.y;
+
+    edgePopover = {
+      edgeId: id,
+      sourceTitle: sourceNode?.title ?? 'Source',
+      targetTitle: targetNode?.title ?? 'Target',
+      unlockDirection: edgeRow.unlockDirection ?? null,
+      x: screenX,
+      y: screenY
+    };
+  }
+
+  async function handleEdgeDirectionChange(dir: 'source' | 'target' | null) {
+    if (!edgePopover) return;
+    const id = edgePopover.edgeId;
+
+    // Optimistic local update
+    allEdges = allEdges.map((e) =>
+      e.id === id ? { ...e, unlockDirection: dir } : e
+    );
+    const cyEdge = cy?.getElementById(id);
+    if (cyEdge?.length) cyEdge.data('unlockDirection', dir);
+    edgePopover = { ...edgePopover, unlockDirection: dir };
+
+    await fetch(`/api/edges/${id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ unlockDirection: dir })
+    }).catch(() => {});
+  }
+
+  async function handleEdgeDelete() {
+    if (!edgePopover) return;
+    const id = edgePopover.edgeId;
+    edgePopover = null;
+
     const res = await fetch(`/api/edges/${id}`, { method: 'DELETE' });
     if (!res.ok) {
       alert('Failed to delete edge: ' + (await res.text()));
       return;
     }
     allEdges = allEdges.filter((e) => e.id !== id);
-    edge.remove();
+    cy?.getElementById(id).remove();
   }
 
   /** Live-update planet metadata (color + design) from the modal's picker. */
@@ -530,6 +602,95 @@
       eh?.disableDrawMode();
     }
   });
+
+  // Recompute which planets are unlocked whenever edges change
+  $effect(() => {
+    const initial = computeInitialUnlocked(part.planets, allEdges);
+    unlockedIds.set(initial);
+  });
+
+  // Sync unlock state → Cytoscape `.locked` class (view mode only)
+  $effect(() => {
+    if (!cy) return;
+    if (canEdit) {
+      cy.nodes('node[?isPlanet]').removeClass('locked');
+      return;
+    }
+    const unlocked = $unlockedIds;
+    cy.nodes('node[?isPlanet]').forEach((node: cytoscape.NodeSingular) => {
+      if (unlocked.has(node.id())) {
+        node.removeClass('locked');
+      } else {
+        node.addClass('locked');
+      }
+    });
+  });
+
+  function handleQuizCorrect(planetId: string) {
+    const children = getChildPlanetIds(planetId, allEdges);
+    if (children.length === 0) {
+      selected = null;
+      collapse();
+      clearFocus();
+      return;
+    }
+
+    // Update unlock store
+    unlockedIds.update((s) => {
+      const next = new Set(s);
+      for (const id of children) next.add(id);
+      return next;
+    });
+
+    // Close modal + collapse ring
+    selected = null;
+    collapse();
+    clearFocus();
+
+    // After a beat, animate the reveal
+    setTimeout(() => {
+      if (!cy) return;
+
+      // Remove locked class + animate planets in
+      for (const id of children) {
+        const node = cy.getElementById(id);
+        if (!node.length) continue;
+        node.removeClass('locked');
+        node.animate(
+          { style: { opacity: 1 } as any },
+          { duration: 600, easing: 'ease-out' }
+        );
+      }
+
+      // Glow the connecting edges
+      const glowEdges = allEdges.filter((e) => {
+        if (!e.unlockDirection) return false;
+        if (e.unlockDirection === 'source' && e.sourceId === planetId && children.includes(e.targetId)) return true;
+        if (e.unlockDirection === 'target' && e.targetId === planetId && children.includes(e.sourceId)) return true;
+        return false;
+      });
+      for (const e of glowEdges) {
+        const cyEdge = cy.getElementById(e.id);
+        if (!cyEdge.length) continue;
+        cyEdge.addClass('unlock-glow');
+      }
+
+      // Fit camera to show parent + newly unlocked children
+      const fitEles = cy.getElementById(planetId);
+      let collection = fitEles.union(fitEles);
+      for (const id of children) {
+        collection = collection.union(cy.getElementById(id));
+      }
+      cy.animate({ fit: { eles: collection, padding: 140 } }, { duration: 600, easing: 'ease-out' });
+
+      // Remove glow after 2s
+      setTimeout(() => {
+        for (const e of glowEdges) {
+          cy?.getElementById(e.id).removeClass('unlock-glow');
+        }
+      }, 2000);
+    }, 100);
+  }
 
   async function createNewPlanet() {
     if (!cy) return;
@@ -701,6 +862,17 @@
         });
         break;
       }
+      case 'edge.updated': {
+        const raw = event.payload as EdgeRow;
+        allEdges = allEdges.map((e) => (e.id === raw.id ? { ...raw, createdAt: new Date(raw.createdAt as any) } : e));
+        const cyEdge = cy?.getElementById(raw.id);
+        if (cyEdge?.length) {
+          cyEdge.data('unlockDirection', raw.unlockDirection ?? null);
+          cyEdge.data('kind', raw.kind);
+          cyEdge.data('label', raw.label ?? '');
+        }
+        break;
+      }
       case 'edge.deleted': {
         const id = event.payload?.id as string | undefined;
         if (!id) return;
@@ -812,10 +984,24 @@
         onAdd={handleSatelliteAdd}
         onPlanetDelete={handlePlanetDelete}
         onMetadataChange={handleMetadataChange}
+        onQuizCorrect={() => handleQuizCorrect(selected!.planet.id)}
         startInEdit={openInEdit}
         canEdit={canEdit}
       />
     {/key}
+  {/if}
+
+  {#if edgePopover}
+    <EdgePopover
+      sourceTitle={edgePopover.sourceTitle}
+      targetTitle={edgePopover.targetTitle}
+      unlockDirection={edgePopover.unlockDirection}
+      x={edgePopover.x}
+      y={edgePopover.y}
+      onDirectionChange={handleEdgeDirectionChange}
+      onDelete={handleEdgeDelete}
+      onClose={() => (edgePopover = null)}
+    />
   {/if}
 
   {#if !selected && !drawMode}

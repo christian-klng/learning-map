@@ -166,6 +166,47 @@ export function buildStylesheet(): cytoscape.StylesheetJson {
       style: { opacity: 0.15 }
     },
 
+    // LOCKED — planets gated behind a quiz
+    {
+      selector: '.locked',
+      style: {
+        opacity: 0.3,
+        'border-style': 'dashed',
+        'border-width': 2,
+        'border-color': t.textDim,
+        'border-opacity': 0.5
+      }
+    },
+
+    // UNLOCK-GLOW — 2-second pulse on edges when children are revealed
+    {
+      selector: '.unlock-glow',
+      style: {
+        'line-color': t.focusRing,
+        width: 3.5,
+        opacity: 1,
+        'z-index': 999
+      }
+    },
+
+    // Directed-edge arrows (unlock direction indicators, edit mode)
+    {
+      selector: 'edge[unlockDirection="source"]',
+      style: {
+        'target-arrow-shape': 'triangle',
+        'target-arrow-color': t.edge,
+        'arrow-scale': 0.8
+      }
+    },
+    {
+      selector: 'edge[unlockDirection="target"]',
+      style: {
+        'source-arrow-shape': 'triangle',
+        'source-arrow-color': t.edge,
+        'arrow-scale': 0.8
+      }
+    },
+
     // -------- cytoscape-edgehandles (v4 — draw-mode model) --------
     // No hover handle; "draw mode" is toggled in the UI. Style the in-progress visuals.
     {

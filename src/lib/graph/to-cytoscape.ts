@@ -72,7 +72,8 @@ export function planetElements(p: Partitioned): cytoscape.ElementDefinition[] {
       source: e.sourceId,
       target: e.targetId,
       kind: e.kind,
-      label: e.label ?? ''
+      label: e.label ?? '',
+      unlockDirection: e.unlockDirection ?? null
     }
   }));
   return [...nodes, ...edges];

@@ -15,6 +15,7 @@ export type DataEvent =
   | { kind: 'node.updated'; payload: unknown; actor: string | null }
   | { kind: 'node.deleted'; payload: { id: string }; actor: string | null }
   | { kind: 'edge.created'; payload: unknown; actor: string | null }
+  | { kind: 'edge.updated'; payload: unknown; actor: string | null }
   | { kind: 'edge.deleted'; payload: { id: string }; actor: string | null };
 
 export type PresenceEvent =
